@@ -1,0 +1,22 @@
+# Documentation
+*.md
+README.md
+SETUP.md
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+
+# Development files
+node_modules
+npm-debug.log
+yarn-error.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
