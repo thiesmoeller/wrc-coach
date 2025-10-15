@@ -3,6 +3,10 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Build timestamp to invalidate cache
+ARG BUILD_DATE
+ENV BUILD_DATE=${BUILD_DATE}
+
 # Copy package files
 COPY package*.json ./
 
