@@ -1,0 +1,33 @@
+.stability-plot-container {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.stability-canvas {
+  width: 100%;
+  height: 100px;
+  display: block;
+}
+
+.legend-item.port {
+  color: #ef4444;
+}
+
+.legend-item.starboard {
+  color: #10b981;
+}
+
+@media (max-width: 768px) {
+  .stability-canvas {
+    height: 90px;
+  }
+}
+
+@media (min-width: 769px) {
+  .stability-canvas {
+    max-height: 140px;
+  }
+}
+

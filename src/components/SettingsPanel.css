@@ -1,0 +1,254 @@
+/* Settings Panel */
+.settings-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 998;
+  backdrop-filter: blur(4px);
+}
+
+.settings-panel {
+  position: fixed;
+  top: 0;
+  right: -100%;
+  width: min(400px, 90vw);
+  height: 100vh;
+  background: white;
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.2);
+  transition: right 0.3s ease-in-out;
+  z-index: 999;
+  overflow-y: auto;
+}
+
+.settings-panel.open {
+  right: 0;
+}
+
+.settings-header {
+  position: sticky;
+  top: 0;
+  background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+  color: white;
+  padding: 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  z-index: 1;
+}
+
+.settings-header h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.keyboard-hint {
+  font-size: 0.75rem;
+  opacity: 0.8;
+  font-weight: 400;
+  margin-left: 0.5rem;
+}
+
+.close-settings {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 2rem;
+  cursor: pointer;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  transition: background 0.2s;
+}
+
+.close-settings:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.settings-content {
+  padding: 1.5rem;
+}
+
+.settings-section {
+  margin-bottom: 2rem;
+}
+
+.settings-section:last-child {
+  margin-bottom: 0;
+}
+
+.settings-section h3 {
+  color: #1e40af;
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 0 0 1rem 0;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.setting-item {
+  margin-bottom: 1.5rem;
+  padding: 0.75rem;
+  border-radius: 8px;
+  transition: all 0.3s;
+}
+
+.setting-item:last-child {
+  margin-bottom: 0;
+}
+
+.setting-item.demo-mode-highlight {
+  background: #fee;
+  border: 2px solid #dc2626;
+  animation: demoHighlight 2s ease-in-out infinite;
+}
+
+.setting-item.demo-mode-highlight * {
+  pointer-events: auto !important;
+}
+
+@keyframes demoHighlight {
+  0%, 100% {
+    background: #fee;
+  }
+  50% {
+    background: #ffd7d7;
+  }
+}
+
+.setting-item label {
+  display: block;
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 0.5rem;
+}
+
+.setting-control {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.setting-control input[type="range"] {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: #e5e7eb;
+  outline: none;
+  -webkit-appearance: none;
+}
+
+.setting-control input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #3b82f6;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.setting-control input[type="range"]::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #3b82f6;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.setting-control span {
+  min-width: 70px;
+  text-align: right;
+  font-weight: 600;
+  color: #3b82f6;
+}
+
+.setting-help {
+  font-size: 0.875rem;
+  color: #6b7280;
+  margin: 0.5rem 0 0 0;
+  line-height: 1.4;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle-checkbox {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  accent-color: #3b82f6;
+}
+
+.orientation-select {
+  width: 100%;
+  padding: 0.75rem;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 500;
+  background: white;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.orientation-select:focus {
+  outline: none;
+  border-color: #3b82f6;
+}
+
+.full-width {
+  width: 100%;
+}
+
+/* Dark theme support for settings */
+@media (prefers-color-scheme: dark) {
+  .settings-panel {
+    background: #1f2937;
+  }
+
+  .settings-section h3 {
+    color: #60a5fa;
+    border-bottom-color: #374151;
+  }
+
+  .setting-item label {
+    color: #d1d5db;
+  }
+
+  .setting-control input[type="range"] {
+    background: #374151;
+  }
+
+  .setting-help {
+    color: #9ca3af;
+  }
+
+  .orientation-select {
+    background: #374151;
+    border-color: #4b5563;
+    color: #d1d5db;
+  }
+
+  .orientation-select:focus {
+    border-color: #3b82f6;
+  }
+}
+

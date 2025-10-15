@@ -1,0 +1,189 @@
+.calibration-panel {
+  padding: 0;
+}
+
+.calibration-panel h3 {
+  margin: 0 0 1rem 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.calibration-info {
+  margin-bottom: 1rem;
+}
+
+.calibration-description {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.calibration-status {
+  margin: 0 0 0.5rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.calibration-help {
+  margin: 0 0 1rem 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.calibration-instruction {
+  margin: 0.5rem 0 1rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--accent-color);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* Progress bar */
+.calibration-progress {
+  margin: 1rem 0;
+}
+
+.progress-bar {
+  height: 8px;
+  background: var(--border-color);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-color), var(--primary-color));
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+/* Calibration details */
+.calibration-details {
+  background: var(--card-background);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1rem;
+  margin: 1rem 0;
+}
+
+.calibration-metric {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.calibration-metric:last-child {
+  border-bottom: none;
+}
+
+.metric-label {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.metric-value {
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-value.quality-excellent {
+  color: var(--success-color, #00c853);
+}
+
+.metric-value.quality-good {
+  color: var(--info-color, #2196f3);
+}
+
+.metric-value.quality-fair {
+  color: var(--warning-color, #ff9800);
+}
+
+.metric-value.quality-poor {
+  color: var(--error-color, #f44336);
+}
+
+/* Actions */
+.calibration-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.calibration-actions .btn {
+  flex: 1;
+}
+
+/* Tips */
+.calibration-tips {
+  background: rgba(var(--accent-rgb), 0.1);
+  border-left: 3px solid var(--accent-color);
+  border-radius: 4px;
+  padding: 0.75rem 1rem;
+  margin-top: 1.5rem;
+}
+
+.tips-title {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tips-list {
+  margin: 0;
+  padding-left: 1.5rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.tips-list li {
+  margin: 0.25rem 0;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .calibration-panel h3 {
+    font-size: 1rem;
+  }
+  
+  .calibration-description,
+  .calibration-help,
+  .metric-label,
+  .metric-value {
+    font-size: 0.85rem;
+  }
+  
+  .calibration-status {
+    font-size: 0.95rem;
+  }
+  
+  .calibration-actions {
+    flex-direction: column;
+  }
+  
+  .calibration-actions .btn {
+    width: 100%;
+  }
+}
+
