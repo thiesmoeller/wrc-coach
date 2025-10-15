@@ -9,6 +9,10 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['wrc-logo.jpg', 'favicon.svg', 'icon.svg'],
+      // Force update check every time app is opened
+      devOptions: {
+        enabled: false
+      },
       manifest: {
         name: 'WRC Coach - Wilhelmsburger Ruder Club',
         short_name: 'WRC Coach',
@@ -34,6 +38,11 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,jpg,png,woff,woff2}'],
+        // Clean old caches on activation
+        cleanupOutdatedCaches: true,
+        // Skip waiting - activate new SW immediately
+        skipWaiting: true,
+        clientsClaim: true,
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
