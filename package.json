@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "test": "vitest",
     "test:ui": "vitest --ui",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "version:generate": "node scripts/generate-version.js",
+    "release": "bash scripts/release.sh"
   },
   "repository": {
     "type": "git",

@@ -2,9 +2,29 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import { execSync } from 'child_process';
+import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
 
 // Get git version info
 function getGitVersion() {
+  // First, try to read from version.json (for Docker builds)
+  const versionFile = join(process.cwd(), 'version.json');
+  if (existsSync(versionFile)) {
+    try {
+      const versionData = JSON.parse(readFileSync(versionFile, 'utf-8'));
+      console.log('📦 Using version from version.json');
+      return {
+        commit: versionData.commit,
+        branch: versionData.branch,
+        tag: versionData.tag,
+        dirty: versionData.dirty,
+      };
+    } catch (error) {
+      console.warn('Could not read version.json:', error);
+    }
+  }
+
+  // Fallback to git commands (for local development)
   try {
     const gitCommit = execSync('git rev-parse --short HEAD').toString().trim();
     const gitBranch = execSync('git rev-parse --abbrev-ref HEAD').toString().trim();
@@ -21,6 +41,7 @@ function getGitVersion() {
     // Check if there are uncommitted changes
     const gitDirty = execSync('git status --porcelain').toString().trim() !== '';
     
+    console.log('🔧 Using version from git commands');
     return {
       commit: gitCommit,
       branch: gitBranch,
@@ -28,7 +49,7 @@ function getGitVersion() {
       dirty: gitDirty,
     };
   } catch (error) {
-    console.warn('Could not get git version info:', error);
+    console.warn('Could not get git version info, using defaults:', error.message);
     return {
       commit: 'unknown',
       branch: 'unknown',
