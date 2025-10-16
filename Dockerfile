@@ -7,6 +7,9 @@ ENV BUILD_DATE=${BUILD_DATE}
 ARG CAPROVER_GIT_COMMIT_SHA
 RUN echo "Commit: $CAPROVER_GIT_COMMIT_SHA"
 
+# Install git for version 
+RUN apk add --no-cache git 
+
 COPY package*.json ./
 RUN npm ci
 
@@ -17,7 +20,7 @@ RUN npm run build
 FROM nginx:alpine
 
 # Install curl for health checks
-RUN apk add --no-cache curl
+RUN apk add --no-cache curl 
 
 COPY --from=builder /app/dist /usr/share/nginx/html/
 COPY nginx.conf /etc/nginx/conf.d/default.conf
