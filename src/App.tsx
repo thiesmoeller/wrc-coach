@@ -41,7 +41,7 @@ interface Sample {
 function App() {
   const { settings, updateSettings } = useSettings();
   const { applyCalibration, isCalibrated, calibrationData } = useCalibration();
-  const { saveSession } = useSessionStorage();
+  const { sessions, saveSession, deleteSession, clearAllSessions } = useSessionStorage();
   const [isRunning, setIsRunning] = useState(false);
   const [samples, setSamples] = useState<Sample[]>([]);
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
@@ -341,6 +341,9 @@ function App() {
         onClose={() => setSessionPanelOpen(false)}
         onNewSession={handleStart}
         isRecording={isRunning}
+        sessions={sessions}
+        deleteSession={deleteSession}
+        clearAllSessions={clearAllSessions}
       />
 
       <SettingsPanel 

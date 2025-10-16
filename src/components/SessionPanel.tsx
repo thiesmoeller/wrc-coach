@@ -1,4 +1,4 @@
-import { useSessionStorage, type SessionData } from '../hooks';
+import { type SessionData } from '../hooks';
 import { BinaryDataWriter, type IMUSample, type GPSSample } from '../lib/data-storage';
 import './SessionPanel.css';
 
@@ -7,10 +7,12 @@ interface SessionPanelProps {
   onClose: () => void;
   onNewSession: () => void;
   isRecording: boolean;
+  sessions: SessionData[];
+  deleteSession: (sessionId: string) => void;
+  clearAllSessions: () => void;
 }
 
-export function SessionPanel({ isOpen, onClose, onNewSession, isRecording }: SessionPanelProps) {
-  const { sessions, deleteSession, clearAllSessions } = useSessionStorage();
+export function SessionPanel({ isOpen, onClose, onNewSession, isRecording, sessions, deleteSession, clearAllSessions }: SessionPanelProps) {
 
   if (!isOpen) return null;
 
