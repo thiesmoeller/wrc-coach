@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
+import { ConfirmDialog } from './ConfirmDialog';
 import './UpdateNotification.css';
 
 export function UpdateNotification() {
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [confirmUpdate, setConfirmUpdate] = useState(false);
 
   useEffect(() => {
     // Check for update waiting flag
@@ -26,34 +28,49 @@ export function UpdateNotification() {
   }, []);
 
   const handleApplyNow = () => {
-    if (window.confirm('This will reload the app and apply the update. Continue?')) {
-      sessionStorage.removeItem('wrc_recording_active');
-      sessionStorage.removeItem('wrc_update_waiting');
-      window.location.reload();
-    }
+    setConfirmUpdate(true);
+  };
+
+  const handleConfirmUpdate = () => {
+    sessionStorage.removeItem('wrc_recording_active');
+    sessionStorage.removeItem('wrc_update_waiting');
+    window.location.reload();
   };
 
   if (!updateAvailable) return null;
 
   return (
-    <div className="update-notification">
-      <div className="update-content">
-        <span className="update-icon">🔄</span>
-        <div className="update-text">
-          <strong>Update Available</strong>
-          {isRecording ? (
-            <span className="update-detail">Will apply when you stop recording</span>
-          ) : (
-            <span className="update-detail">Ready to install</span>
+    <>
+      <div className="update-notification">
+        <div className="update-content">
+          <span className="update-icon">🔄</span>
+          <div className="update-text">
+            <strong>Update Available</strong>
+            {isRecording ? (
+              <span className="update-detail">Will apply when you stop recording</span>
+            ) : (
+              <span className="update-detail">Ready to install</span>
+            )}
+          </div>
+          {!isRecording && (
+            <button className="update-btn" onClick={handleApplyNow}>
+              Update Now
+            </button>
           )}
         </div>
-        {!isRecording && (
-          <button className="update-btn" onClick={handleApplyNow}>
-            Update Now
-          </button>
-        )}
       </div>
-    </div>
+
+      <ConfirmDialog
+        isOpen={confirmUpdate}
+        title="Apply Update Now?"
+        message="This will reload the app to apply the update. Any unsaved changes will be lost."
+        confirmText="Update Now"
+        cancelText="Cancel"
+        danger={false}
+        onConfirm={handleConfirmUpdate}
+        onCancel={() => setConfirmUpdate(false)}
+      />
+    </>
   );
 }
 

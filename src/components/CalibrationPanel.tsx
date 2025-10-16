@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useCalibration } from '../hooks/useCalibration';
 import { MotionData } from '../hooks/useDeviceMotion';
+import { ConfirmDialog } from './ConfirmDialog';
 import './CalibrationPanel.css';
 
 interface CalibrationPanelProps {
@@ -9,6 +10,8 @@ interface CalibrationPanelProps {
 }
 
 export function CalibrationPanel({ motionData, onCalibrationComplete }: CalibrationPanelProps) {
+  const [confirmClear, setConfirmClear] = useState(false);
+  
   const {
     isCalibrating,
     isCalibrated,
@@ -55,9 +58,11 @@ export function CalibrationPanel({ motionData, onCalibrationComplete }: Calibrat
   };
   
   const handleClear = () => {
-    if (confirm('Are you sure you want to clear calibration? You will need to recalibrate.')) {
-      clearCalibration();
-    }
+    setConfirmClear(true);
+  };
+
+  const handleConfirmClear = () => {
+    clearCalibration();
   };
   
   const progress = Math.min((sampleCount / 250) * 100, 100);
@@ -161,6 +166,17 @@ export function CalibrationPanel({ motionData, onCalibrationComplete }: Calibrat
           <li>Better quality = more accurate measurements</li>
         </ul>
       </div>
+
+      <ConfirmDialog
+        isOpen={confirmClear}
+        title="Clear Calibration?"
+        message="Are you sure you want to clear calibration? You will need to recalibrate the phone mounting angle before your next session."
+        confirmText="Clear"
+        cancelText="Cancel"
+        danger={true}
+        onConfirm={handleConfirmClear}
+        onCancel={() => setConfirmClear(false)}
+      />
     </div>
   );
 }
