@@ -6,6 +6,8 @@ WORKDIR /app
 # Build timestamp to invalidate cache
 ARG BUILD_DATE
 ENV BUILD_DATE=${BUILD_DATE}
+ARG CAPROVER_GIT_COMMIT_SHA
+RUN echo "Commit: $CAPROVER_GIT_COMMIT_SHA"
 
 # Copy package files
 COPY package*.json ./
