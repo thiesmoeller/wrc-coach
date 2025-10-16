@@ -218,6 +218,49 @@
   width: 100%;
 }
 
+/* Version Info Section */
+.version-info {
+  border-top: 2px solid #e5e7eb;
+  padding-top: 1.5rem;
+  margin-top: 2rem;
+}
+
+.version-details {
+  background: #f9fafb;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.version-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.version-item:last-child {
+  border-bottom: none;
+}
+
+.version-label {
+  font-weight: 500;
+  color: #6b7280;
+  font-size: 0.875rem;
+}
+
+.version-value {
+  font-family: 'Courier New', monospace;
+  color: #1f2937;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.dirty-indicator {
+  color: #dc2626;
+  font-weight: 700;
+}
+
 /* Dark theme support for settings */
 @media (prefers-color-scheme: dark) {
   .settings-panel {
@@ -249,6 +292,26 @@
 
   .orientation-select:focus {
     border-color: #3b82f6;
+  }
+
+  .version-info {
+    border-top-color: #374151;
+  }
+
+  .version-details {
+    background: #111827;
+  }
+
+  .version-item {
+    border-bottom-color: #374151;
+  }
+
+  .version-label {
+    color: #9ca3af;
+  }
+
+  .version-value {
+    color: #e5e7eb;
   }
 }
 

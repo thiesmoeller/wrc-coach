@@ -1,6 +1,42 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { execSync } from 'child_process';
+
+// Get git version info
+function getGitVersion() {
+  try {
+    const gitCommit = execSync('git rev-parse --short HEAD').toString().trim();
+    const gitBranch = execSync('git rev-parse --abbrev-ref HEAD').toString().trim();
+    
+    // Try to get the most recent tag
+    let gitTag = '';
+    try {
+      gitTag = execSync('git describe --tags --abbrev=0').toString().trim();
+    } catch {
+      // No tags found
+      gitTag = '';
+    }
+    
+    // Check if there are uncommitted changes
+    const gitDirty = execSync('git status --porcelain').toString().trim() !== '';
+    
+    return {
+      commit: gitCommit,
+      branch: gitBranch,
+      tag: gitTag,
+      dirty: gitDirty,
+    };
+  } catch (error) {
+    console.warn('Could not get git version info:', error);
+    return {
+      commit: 'unknown',
+      branch: 'unknown',
+      tag: '',
+      dirty: false,
+    };
+  }
+}
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -59,6 +95,13 @@ export default defineConfig({
       }
     })
   ],
+  define: {
+    __APP_VERSION__: JSON.stringify(process.env.npm_package_version || '0.0.0'),
+    __GIT_COMMIT__: JSON.stringify(getGitVersion().commit),
+    __GIT_BRANCH__: JSON.stringify(getGitVersion().branch),
+    __GIT_TAG__: JSON.stringify(getGitVersion().tag),
+    __GIT_DIRTY__: JSON.stringify(getGitVersion().dirty),
+  },
   server: {
     port: 3000,
     host: true

@@ -187,6 +187,38 @@ export function SettingsPanel({ isOpen, onClose, motionData, settings, updateSet
               Reset to Defaults
             </button>
           </div>
+
+          {/* Version Info */}
+          <div className="settings-section version-info">
+            <h3>Version Information</h3>
+            <div className="version-details">
+              <div className="version-item">
+                <span className="version-label">App Version:</span>
+                <span className="version-value">{__APP_VERSION__}</span>
+              </div>
+              {__GIT_TAG__ && (
+                <div className="version-item">
+                  <span className="version-label">Git Tag:</span>
+                  <span className="version-value">{__GIT_TAG__}</span>
+                </div>
+              )}
+              <div className="version-item">
+                <span className="version-label">Git Commit:</span>
+                <span className="version-value">
+                  {__GIT_COMMIT__}
+                  {__GIT_DIRTY__ === 'true' && <span className="dirty-indicator"> (modified)</span>}
+                </span>
+              </div>
+              <div className="version-item">
+                <span className="version-label">Branch:</span>
+                <span className="version-value">{__GIT_BRANCH__}</span>
+              </div>
+              <div className="version-item">
+                <span className="version-label">Build Date:</span>
+                <span className="version-value">{new Date().toISOString().split('T')[0]}</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </>
