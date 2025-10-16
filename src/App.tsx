@@ -6,6 +6,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { SessionPanel } from './components/SessionPanel';
 import { PolarPlot } from './components/PolarPlot';
 import { StabilityPlot } from './components/StabilityPlot';
+import { UpdateNotification } from './components/UpdateNotification';
 import { useSettings, useDeviceMotion, useGeolocation, useWakeLock, useCalibration, useSessionStorage, type MotionData, type GPSData } from './hooks';
 import {
   ComplementaryFilter,
@@ -203,6 +204,9 @@ function App() {
     setSessionStartTime(Date.now());
     setSamples([]);
     
+    // Mark session as active (prevents app updates during recording)
+    sessionStorage.setItem('wrc_recording_active', 'true');
+    
     // Reset filters
     complementaryFilterRef.current.reset();
     kalmanFilterRef.current.reset();
@@ -225,6 +229,9 @@ function App() {
   const handleStop = useCallback(() => {
     setIsRunning(false);
     lastIMUTimeRef.current = null;
+    
+    // Mark session as inactive (allows app updates)
+    sessionStorage.removeItem('wrc_recording_active');
     
     // Calculate session statistics
     const duration = sessionStartTime ? Date.now() - sessionStartTime : 0;
@@ -354,6 +361,8 @@ function App() {
         updateSettings={updateSettings}
         resetSettings={resetSettings}
       />
+
+      <UpdateNotification />
     </div>
   );
 }

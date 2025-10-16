@@ -44,8 +44,8 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      injectRegister: false, // We'll register manually for better control
       includeAssets: ['wrc-logo.jpg', 'favicon.svg', 'icon.svg'],
-      // Force update check every time app is opened
       devOptions: {
         enabled: false
       },
