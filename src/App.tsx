@@ -39,7 +39,7 @@ interface Sample {
 }
 
 function App() {
-  const { settings, updateSettings } = useSettings();
+  const { settings, updateSettings, resetSettings } = useSettings();
   const { applyCalibration, isCalibrated, calibrationData } = useCalibration();
   const { sessions, saveSession, deleteSession, clearAllSessions } = useSessionStorage();
   const [isRunning, setIsRunning] = useState(false);
@@ -350,6 +350,9 @@ function App() {
         isOpen={settingsPanelOpen} 
         onClose={() => setSettingsPanelOpen(false)}
         motionData={latestMotionData}
+        settings={settings}
+        updateSettings={updateSettings}
+        resetSettings={resetSettings}
       />
     </div>
   );

@@ -53,10 +53,23 @@ export function useDeviceMotion({ onMotion, enabled, demoMode = false }: UseDevi
   }, []);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) {
+      // Clean up when disabled
+      if (demoIntervalRef.current !== null) {
+        clearInterval(demoIntervalRef.current);
+        demoIntervalRef.current = null;
+      }
+      return;
+    }
 
     // Demo mode: simulate realistic rowing motion at 25 SPM
     if (demoMode) {
+      // Clear any existing interval first
+      if (demoIntervalRef.current !== null) {
+        clearInterval(demoIntervalRef.current);
+        demoIntervalRef.current = null;
+      }
+      
       const strokeRate = 25; // SPM
       const strokePeriod = 60000 / strokeRate; // ms per stroke (2400ms)
       const sampleRate = 50; // Hz
@@ -176,6 +189,7 @@ export function useDeviceMotion({ onMotion, enabled, demoMode = false }: UseDevi
       return () => {
         if (demoIntervalRef.current !== null) {
           clearInterval(demoIntervalRef.current);
+          demoIntervalRef.current = null;
         }
       };
     }

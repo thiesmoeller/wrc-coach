@@ -75,13 +75,11 @@ export function useSessionStorage() {
   }, []);
 
   const clearAllSessions = useCallback(() => {
-    if (confirm('Are you sure you want to delete all sessions? This cannot be undone.')) {
-      setSessions([]);
-      try {
-        localStorage.removeItem(STORAGE_KEY);
-      } catch (error) {
-        console.error('Error clearing sessions:', error);
-      }
+    setSessions([]);
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch (error) {
+      console.error('Error clearing sessions:', error);
     }
   }, []);
 

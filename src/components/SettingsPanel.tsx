@@ -1,4 +1,4 @@
-import { useSettings } from '../hooks/useSettings';
+import { AppSettings } from '../hooks/useSettings';
 import { CalibrationPanel } from './CalibrationPanel';
 import { MotionData } from '../hooks/useDeviceMotion';
 import './SettingsPanel.css';
@@ -7,10 +7,12 @@ interface SettingsPanelProps {
   isOpen: boolean;
   onClose: () => void;
   motionData?: MotionData | null;
+  settings: AppSettings;
+  updateSettings: (updates: Partial<AppSettings>) => void;
+  resetSettings: () => void;
 }
 
-export function SettingsPanel({ isOpen, onClose, motionData }: SettingsPanelProps) {
-  const { settings, updateSettings, resetSettings } = useSettings();
+export function SettingsPanel({ isOpen, onClose, motionData, settings, updateSettings, resetSettings }: SettingsPanelProps) {
 
   if (!isOpen) return null;
 

@@ -60,6 +60,17 @@ export function useGeolocation({ onPosition, enabled, demoMode = false }: UseGeo
 
     // Demo mode: simulate GPS at typical rowing speed
     if (demoMode) {
+      // Clear any existing GPS watch first
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+      // Clear any existing interval
+      if (demoIntervalRef.current !== null) {
+        clearInterval(demoIntervalRef.current);
+        demoIntervalRef.current = null;
+      }
+      
       // Hamburg, Wilhelmsburg area starting point
       let lat = 53.5;
       let lon = 10.0;
@@ -94,11 +105,18 @@ export function useGeolocation({ onPosition, enabled, demoMode = false }: UseGeo
       return () => {
         if (demoIntervalRef.current !== null) {
           clearInterval(demoIntervalRef.current);
+          demoIntervalRef.current = null;
         }
       };
     }
 
     // Real GPS mode
+    // Clear any existing interval first
+    if (demoIntervalRef.current !== null) {
+      clearInterval(demoIntervalRef.current);
+      demoIntervalRef.current = null;
+    }
+    
     watchIdRef.current = navigator.geolocation.watchPosition(
       handlePosition,
       handleError,

@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { type SessionData } from '../hooks';
 import { BinaryDataWriter, type IMUSample, type GPSSample } from '../lib/data-storage';
+import { ConfirmDialog } from './ConfirmDialog';
 import './SessionPanel.css';
 
 interface SessionPanelProps {
@@ -13,6 +15,8 @@ interface SessionPanelProps {
 }
 
 export function SessionPanel({ isOpen, onClose, onNewSession, isRecording, sessions, deleteSession, clearAllSessions }: SessionPanelProps) {
+  const [confirmDelete, setConfirmDelete] = useState<{ show: boolean; sessionId?: string }>({ show: false });
+  const [confirmClearAll, setConfirmClearAll] = useState(false);
 
   if (!isOpen) return null;
 
@@ -59,25 +63,45 @@ export function SessionPanel({ isOpen, onClose, onNewSession, isRecording, sessi
     const blob = new Blob([buffer], { type: 'application/octet-stream' });
     
     // Try Web Share API first (mobile)
-    if (navigator.share && navigator.canShare) {
+    if (navigator.share) {
+      console.log('Web Share API available, attempting to share...');
       try {
         const file = new File([blob], filename, { type: 'application/octet-stream' });
         
-        if (navigator.canShare({ files: [file] })) {
-          await navigator.share({
-            files: [file],
-            title: 'WRC Coach Session Data',
-            text: `Session from ${new Date(session.sessionStartTime).toLocaleString()}`,
-          });
+        // Debug: Check if canShare exists and what it reports
+        if (navigator.canShare) {
+          const canShareResult = navigator.canShare({ files: [file] });
+          console.log('navigator.canShare result:', canShareResult);
+        } else {
+          console.log('navigator.canShare not available, trying share anyway...');
+        }
+        
+        // Try to share the file
+        // Note: Some browsers support file sharing but report false for canShare
+        // So we try regardless and handle failures gracefully
+        await navigator.share({
+          files: [file],
+          title: 'WRC Coach Session Data',
+          text: `Session from ${new Date(session.sessionStartTime).toLocaleString()}`,
+        });
+        console.log('Share successful!');
+        return;
+      } catch (err: any) {
+        // User cancelled the share (AbortError) - don't fall back to download
+        if (err.name === 'AbortError') {
+          console.log('Share cancelled by user');
           return;
         }
-      } catch (err) {
-        // If share fails or is cancelled, fall through to download
-        console.log('Share failed, falling back to download:', err);
+        // Actual error - log and fall back to download
+        console.log('Share failed:', err.name, err.message);
+        console.log('Falling back to download...');
       }
+    } else {
+      console.log('Web Share API not available, using download fallback');
     }
     
     // Fallback to traditional download (desktop or if share fails)
+    console.log('Triggering download...');
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -87,9 +111,17 @@ export function SessionPanel({ isOpen, onClose, onNewSession, isRecording, sessi
   };
 
   const handleDelete = (sessionId: string) => {
-    if (confirm('Are you sure you want to delete this session?')) {
-      deleteSession(sessionId);
+    setConfirmDelete({ show: true, sessionId });
+  };
+
+  const handleConfirmDelete = () => {
+    if (confirmDelete.sessionId) {
+      deleteSession(confirmDelete.sessionId);
     }
+  };
+
+  const handleClearAll = () => {
+    setConfirmClearAll(true);
   };
 
   const formatDuration = (ms: number) => {
@@ -191,7 +223,7 @@ export function SessionPanel({ isOpen, onClose, onNewSession, isRecording, sessi
           {sessions.length > 0 && (
             <button
               className="clear-all-btn"
-              onClick={clearAllSessions}
+              onClick={handleClearAll}
               disabled={isRecording}
             >
               Clear All
@@ -209,6 +241,28 @@ export function SessionPanel({ isOpen, onClose, onNewSession, isRecording, sessi
           </button>
         </div>
       </div>
+
+      <ConfirmDialog
+        isOpen={confirmDelete.show}
+        title="Delete Session?"
+        message="Are you sure you want to delete this session? This action cannot be undone."
+        confirmText="Delete"
+        cancelText="Cancel"
+        danger={true}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setConfirmDelete({ show: false })}
+      />
+
+      <ConfirmDialog
+        isOpen={confirmClearAll}
+        title="Clear All Sessions?"
+        message="Are you sure you want to delete all sessions? This will permanently remove all recorded data and cannot be undone."
+        confirmText="Clear All"
+        cancelText="Cancel"
+        danger={true}
+        onConfirm={clearAllSessions}
+        onCancel={() => setConfirmClearAll(false)}
+      />
     </div>
   );
 }
