@@ -1,0 +1,156 @@
+.gps-map-leaflet {
+  position: relative;
+  width: 100%;
+  background: white;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.gps-map-leaflet .no-data {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #666;
+  font-size: 14px;
+}
+
+/* Stats Overlay */
+.gps-map-leaflet .stats-overlay {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: white;
+  padding: 15px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+  min-width: 200px;
+}
+
+.gps-map-leaflet .stats-overlay .stats-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: #333;
+  border-bottom: 2px solid #0066cc;
+  padding-bottom: 5px;
+}
+
+.gps-map-leaflet .stats-overlay .stats-item {
+  font-size: 13px;
+  color: #666;
+  margin-bottom: 5px;
+}
+
+.gps-map-leaflet .stats-overlay .stats-item strong {
+  color: #0066cc;
+  font-family: 'Courier New', monospace;
+}
+
+/* Speed Legend */
+.gps-map-leaflet .speed-legend {
+  position: absolute;
+  bottom: 30px;
+  left: 10px;
+  background: white;
+  padding: 10px 15px;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.gps-map-leaflet .legend-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 3px;
+}
+
+.gps-map-leaflet .legend-gradient {
+  width: 200px;
+  height: 12px;
+  background: linear-gradient(to right, 
+    hsl(0, 70%, 50%), 
+    hsl(60, 70%, 50%), 
+    hsl(120, 70%, 50%)
+  );
+  border-radius: 3px;
+  border: 1px solid #ddd;
+}
+
+.gps-map-leaflet .legend-labels {
+  display: flex;
+  justify-content: space-between;
+  width: 200px;
+  font-size: 10px;
+  color: #666;
+}
+
+/* Leaflet overrides */
+.gps-map-leaflet .leaflet-container {
+  font-family: inherit;
+}
+
+.gps-map-leaflet .leaflet-popup-content-wrapper {
+  border-radius: 6px;
+}
+
+.gps-map-leaflet .leaflet-popup-content {
+  margin: 10px 12px;
+  font-size: 13px;
+}
+
+.gps-map-leaflet .leaflet-control-attribution {
+  font-size: 10px;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+/* Ensure map controls are visible */
+.gps-map-leaflet .leaflet-control-zoom {
+  border: 2px solid rgba(0,0,0,0.2);
+  border-radius: 4px;
+}
+
+.gps-map-leaflet .leaflet-control-zoom a {
+  width: 30px;
+  height: 30px;
+  line-height: 30px;
+  font-size: 18px;
+}
+
+/* Custom Fit Route Control */
+.gps-map-leaflet .leaflet-control-custom {
+  background: white;
+  border: 2px solid rgba(0,0,0,0.2);
+  border-radius: 4px;
+  margin-top: 10px;
+}
+
+.gps-map-leaflet .leaflet-control-fit-route {
+  width: 30px;
+  height: 30px;
+  line-height: 30px;
+  display: block;
+  text-align: center;
+  text-decoration: none;
+  color: #333;
+  font-size: 20px;
+  font-weight: bold;
+  cursor: pointer;
+  background: white;
+  transition: background-color 0.2s;
+}
+
+.gps-map-leaflet .leaflet-control-fit-route:hover {
+  background-color: #f4f4f4;
+}
+
+.gps-map-leaflet .leaflet-control-fit-route:active {
+  background-color: #e0e0e0;
+}
+
