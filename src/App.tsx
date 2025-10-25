@@ -93,6 +93,23 @@ function App() {
   // Enable wake lock
   useWakeLock();
 
+  // Monitor visibility changes during recording to detect background interruptions
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (isRunning) {
+        if (document.hidden) {
+          console.warn('⚠️ App went to background during recording!');
+          console.warn('💡 Sensor data may be interrupted. Keep app visible during recording.');
+        } else {
+          console.log('✅ App is visible again, sensors should resume');
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [isRunning]);
+
   // Update detector thresholds when settings change
   useEffect(() => {
     strokeDetectorRef.current.setThresholds({
