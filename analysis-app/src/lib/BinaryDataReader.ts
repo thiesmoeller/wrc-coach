@@ -1,14 +1,20 @@
 import type { IMUSample, GPSSample, SessionData, CalibrationData } from '../types';
 
 /**
- * Binary Reader for .wrcdata files (V1 and V2 formats)
+ * Binary Reader for .wrcdata files (V1, V2, and V3 formats)
  * Decodes binary format back to usable data
+ * 
+ * V1: Legacy format (no calibration)
+ * V2: With calibration data (deprecated)
+ * V3: PCA-based axis detection (no calibration needed)
  */
 export class BinaryDataReader {
   private readonly MAGIC_V1 = 'WRC_COACH_V1';
   private readonly MAGIC_V2 = 'WRC_COACH_V2';
+  private readonly MAGIC_V3 = 'WRC_COACH_V3';
   private readonly HEADER_SIZE_V1 = 64;
   private readonly HEADER_SIZE_V2 = 128;
+  private readonly HEADER_SIZE_V3 = 64; // V3 is simpler, no calibration
   private readonly IMU_SAMPLE_SIZE = 32;
   private readonly GPS_SAMPLE_SIZE = 36;
   private readonly CALIBRATION_SIZE = 64;
@@ -27,14 +33,24 @@ export class BinaryDataReader {
       if (char !== 0) magic += String.fromCharCode(char);
     }
     
-    const version = magic.startsWith(this.MAGIC_V2) ? 2 : 1;
-    const headerSize = version === 2 ? this.HEADER_SIZE_V2 : this.HEADER_SIZE_V1;
+    // Determine version and header size
+    let version = 1;
+    let headerSize = this.HEADER_SIZE_V1;
+    if (magic.startsWith(this.MAGIC_V3)) {
+      version = 3;
+      headerSize = this.HEADER_SIZE_V3;
+    } else if (magic.startsWith(this.MAGIC_V2)) {
+      version = 2;
+      headerSize = this.HEADER_SIZE_V2;
+    }
+    
+    console.log(`Loading .wrcdata file version ${version}`);
     
     // Read header
     const metadata = this.readHeader(view, offset, version);
     offset += headerSize;
     
-    // Read calibration data if V2
+    // Read calibration data if V2 (ignored, but still parsed for compatibility)
     let calibration: CalibrationData | null = null;
     if (version === 2) {
       // Check if has_calibration flag is set
@@ -42,8 +58,11 @@ export class BinaryDataReader {
       if (hasCalibration) {
         calibration = this.readCalibration(view, offset);
         offset += this.CALIBRATION_SIZE;
+        console.log('V2 calibration data found (will be ignored in favor of PCA)');
       }
     }
+    
+    // V3 does not have calibration data
     
     // Read IMU samples
     const imuSamples: IMUSample[] = [];
@@ -65,7 +84,7 @@ export class BinaryDataReader {
       metadata,
       imuSamples,
       gpsSamples,
-      calibration,
+      calibration: null, // Always null - calibration is no longer used
     };
   }
 
@@ -80,11 +99,13 @@ export class BinaryDataReader {
     const imuCount = view.getUint32(offset, true); offset += 4;
     const gpsCount = view.getUint32(offset, true); offset += 4;
     
-    // V2 has calibration count
+    // V2 has calibration count (skip it)
     if (version === 2) {
       offset += 4; // skip calibration count
       offset += 1; // skip has_calibration flag
     }
+    
+    // V3 doesn't have calibration fields
     
     const sessionStart = view.getFloat64(offset, true); offset += 8;
     const phoneOrientation: 'coxswain' | 'rower' = view.getUint8(offset++) === 1 ? 'coxswain' : 'rower';

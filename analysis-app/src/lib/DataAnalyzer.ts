@@ -1,8 +1,7 @@
-import type { SessionData, AnalysisResults, CalibrationData } from '../types';
+import type { SessionData, AnalysisResults } from '../types';
 import { BandPassFilter } from '@wrc-coach/lib/filters/BandPassFilter';
-import { StrokeDetector } from '@wrc-coach/lib/stroke-detection/StrokeDetector';
-import { ComplementaryFilter } from '@wrc-coach/lib/filters/ComplementaryFilter';
-import { transformToBoatFrame } from '@wrc-coach/lib/transforms/BoatTransform';
+import { AdaptiveStrokeDetector } from './AdaptiveStrokeDetector';
+import { PCAAxisDetector } from './PCAAxisDetector';
 
 /**
  * Parameters for analysis
@@ -10,38 +9,6 @@ import { transformToBoatFrame } from '@wrc-coach/lib/transforms/BoatTransform';
 export interface AnalysisParams {
   lowCutFreq: number;
   highCutFreq: number;
-  sampleRate: number;
-  catchThreshold: number;
-  finishThreshold: number;
-}
-
-/**
- * Apply calibration to raw sensor data
- */
-function applyCalibration(
-  ax: number, 
-  ay: number, 
-  az: number, 
-  calibration: CalibrationData
-): { ax: number; ay: number; az: number } {
-  const { pitchOffset, rollOffset } = calibration;
-  
-  // Convert offsets to radians (negative to undo the rotation)
-  const pitch = -pitchOffset * Math.PI / 180;
-  const roll = -rollOffset * Math.PI / 180;
-  
-  // Apply inverse rotation to undo mounting offset
-  // Undo pitch first (opposite order of application)
-  let ax1 = ax;
-  let ay1 = ay * Math.cos(pitch) + az * Math.sin(pitch);
-  let az1 = -ay * Math.sin(pitch) + az * Math.cos(pitch);
-  
-  // Then undo roll
-  const ax2 = ax1 * Math.cos(roll) - az1 * Math.sin(roll);
-  const ay2 = ay1;
-  const az2 = ax1 * Math.sin(roll) + az1 * Math.cos(roll);
-  
-  return { ax: ax2, ay: ay2, az: az2 };
 }
 
 /**
@@ -53,7 +20,7 @@ export class DataAnalyzer {
    * Analyze session data with given parameters
    */
   static analyze(data: SessionData, params: AnalysisParams): AnalysisResults {
-    const { imuSamples, metadata, calibration } = data;
+    const { imuSamples } = data;
     
     if (imuSamples.length === 0) {
       return {
@@ -69,12 +36,55 @@ export class DataAnalyzer {
       };
     }
 
+    console.log('=== PCA-Based Axis Detection ===');
+    
+    // Step 1: Detect boat axes using PCA
+    const axes = PCAAxisDetector.detectAxes(imuSamples, 1.0);
+    
+    if (!axes) {
+      console.error('Failed to detect boat axes - not enough motion in data');
+      return {
+        timeVector: [],
+        rawAcceleration: [],
+        filteredAcceleration: [],
+        catches: [],
+        finishes: [],
+        strokes: [],
+        avgStrokeRate: 0,
+        avgDrivePercent: 0,
+        totalStrokes: 0,
+      };
+    }
+    
+    console.log('✅ Boat axes detected:');
+    console.log('  Bow-stern:', axes.bowSternAxis.map(v => v.toFixed(3)));
+    console.log('  Port-starboard:', axes.portStarboardAxis.map(v => v.toFixed(3)));
+    console.log('  Vertical:', axes.verticalAxis.map(v => v.toFixed(3)));
+    console.log('  Confidence:', (axes.confidence * 100).toFixed(1) + '%');
+    console.log('  Explained variance:', axes.explainedVariance.map(v => (v * 100).toFixed(1) + '%').join(', '));
+    
+    if (axes.confidence < 0.6) {
+      console.warn('⚠️  Low confidence in axis detection - rowing motion may not be dominant');
+    }
+    
+    // Step 2: Estimate gravity for transformation
+    const gravity = this.estimateGravity(imuSamples);
+    console.log('Estimated gravity:', gravity.map(v => v.toFixed(3)));
+
     // Extract time
     const t0 = imuSamples[0].t;
     const timeVector = imuSamples.map(s => (s.t - t0) / 1000); // Convert to seconds
 
-    // Process IMU data with proper transformations
-    const orientationFilter = new ComplementaryFilter();
+    // Calculate actual sample rate from timestamps
+    const sampleIntervals: number[] = [];
+    for (let i = 1; i < imuSamples.length; i++) {
+      sampleIntervals.push(imuSamples[i].t - imuSamples[i-1].t);
+    }
+    const avgInterval = sampleIntervals.reduce((a, b) => a + b, 0) / sampleIntervals.length;
+    const sampleRate = 1000 / avgInterval; // Convert ms to Hz
+    console.log(`Calculated sample rate: ${sampleRate.toFixed(1)} Hz (avg interval: ${avgInterval.toFixed(1)} ms)`);
+
+    // Step 3: Transform all samples to boat frame using detected axes
     const surgeAccelerations: number[] = [];
     const rawSurgeAccelerations: number[] = [];
     
@@ -84,42 +94,18 @@ export class DataAnalyzer {
     for (let i = 0; i < imuSamples.length; i++) {
       const sample = imuSamples[i];
       
-      // Apply calibration if available
-      const corrected = calibration 
-        ? applyCalibration(sample.ax, sample.ay, sample.az, calibration)
-        : { ax: sample.ax, ay: sample.ay, az: sample.az };
-      
-      // Calculate time delta
-      const dt = i > 0 ? (sample.t - imuSamples[i - 1].t) / 1000 : 0.02;
-      
-      // Update orientation filter to estimate pitch/roll
-      const orientation = orientationFilter.update(
-        corrected.ax,
-        corrected.ay,
-        corrected.az,
-        sample.gx,
-        sample.gy,
-        sample.gz,
-        dt
-      );
-      
-      // Transform to boat frame (removes gravity and maps to boat axes)
-      const boatAccel = transformToBoatFrame(
-        corrected.ax,
-        corrected.ay,
-        corrected.az,
-        orientation,
-        metadata.phoneOrientation
-      );
+      // Transform to boat frame using PCA-detected axes
+      const boatAccel = PCAAxisDetector.transformToBoatFrame(sample, axes, gravity);
       
       // Debug sample at middle of recording
       if (i === debugIdx) {
         console.log('Debug at t=' + ((sample.t - imuSamples[0].t) / 1000).toFixed(1) + 's:', {
+          raw_ax: sample.ax.toFixed(3),
           raw_ay: sample.ay.toFixed(3),
-          calibrated_ay: corrected.ay.toFixed(3),
-          orientation_pitch: orientation.pitch.toFixed(1) + '°',
-          orientation_roll: orientation.roll.toFixed(1) + '°',
+          raw_az: sample.az.toFixed(3),
           surge: boatAccel.surge.toFixed(3),
+          sway: boatAccel.sway.toFixed(3),
+          heave: boatAccel.heave.toFixed(3),
         });
       }
       
@@ -132,7 +118,7 @@ export class DataAnalyzer {
     const filter = new BandPassFilter(
       params.lowCutFreq,
       params.highCutFreq,
-      params.sampleRate
+      sampleRate
     );
     const filteredAcceleration = surgeAccelerations.map(a => filter.process(a));
 
@@ -146,38 +132,28 @@ export class DataAnalyzer {
       surgeAvg: avgSurge.toFixed(3),
       filteredMin: minFiltered.toFixed(3),
       filteredMax: maxFiltered.toFixed(3),
-      catchThreshold: params.catchThreshold,
-      finishThreshold: params.finishThreshold,
-      phoneOrientation: metadata.phoneOrientation,
-      hasCalibration: !!calibration
+      axisConfidence: (axes.confidence * 100).toFixed(1) + '%'
     });
 
-    // Detect strokes
-    const detector = new StrokeDetector({ 
-      catchThreshold: params.catchThreshold, 
-      finishThreshold: params.finishThreshold 
-    });
-    const catches: number[] = [];
-    const finishes: number[] = [];
+    // Detect strokes using adaptive peak-based detector
+    const detectedStrokes = AdaptiveStrokeDetector.detectStrokes(
+      timeVector,
+      filteredAcceleration,
+      imuSamples.map(s => s.t)
+    );
 
-    for (let i = 0; i < imuSamples.length; i++) {
-      const stroke = detector.process(imuSamples[i].t, filteredAcceleration[i]);
-      if (stroke) {
-        catches.push((stroke.catchTime - t0) / 1000);
-        finishes.push((stroke.finishTime - t0) / 1000);
-      }
-    }
+    // Extract catch and finish times for plotting
+    const catches = detectedStrokes.map(s => (s.catchTime - t0) / 1000);
+    const finishes = detectedStrokes.map(s => (s.finishTime - t0) / 1000);
 
-    const rawStrokes = detector.getAllStrokes();
-    
-    // Ensure strokeRate and drivePercent are defined
-    const strokes = rawStrokes.map(s => ({
+    // Convert to analysis format
+    const strokes = detectedStrokes.map(s => ({
       catchTime: s.catchTime,
       finishTime: s.finishTime,
       driveTime: s.driveTime,
       recoveryTime: s.recoveryTime,
-      strokeRate: s.strokeRate ?? 0,
-      drivePercent: s.drivePercent ?? 0,
+      strokeRate: s.strokeRate,
+      drivePercent: s.drivePercent,
     }));
     
     // Calculate averages
@@ -200,6 +176,19 @@ export class DataAnalyzer {
       avgDrivePercent,
       totalStrokes: strokes.length,
     };
+  }
+
+  /**
+   * Estimate gravity vector from IMU samples
+   * Uses median to be robust to motion outliers
+   */
+  private static estimateGravity(samples: { ax: number; ay: number; az: number }[]): [number, number, number] {
+    const ax = samples.map(s => s.ax).sort((a, b) => a - b);
+    const ay = samples.map(s => s.ay).sort((a, b) => a - b);
+    const az = samples.map(s => s.az).sort((a, b) => a - b);
+    
+    const mid = Math.floor(samples.length / 2);
+    return [ax[mid], ay[mid], az[mid]];
   }
 }
 

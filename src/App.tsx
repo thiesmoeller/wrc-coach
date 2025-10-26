@@ -41,7 +41,7 @@ interface Sample {
 
 function App() {
   const { settings, updateSettings, resetSettings } = useSettings();
-  const { applyCalibration, isCalibrated, calibrationData } = useCalibration();
+  const { applyCalibration, isCalibrated } = useCalibration();
   const { sessions, isLoading, saveSession, deleteSession, clearAllSessions, getSessionBinary } = useSessionStorage();
   const [isRunning, setIsRunning] = useState(false);
   const [samples, setSamples] = useState<Sample[]>([]);
@@ -303,14 +303,13 @@ function App() {
           demoMode: settings.demoMode,
           catchThreshold: settings.catchThreshold,
           finishThreshold: settings.finishThreshold,
-          calibrationData,
         });
         console.log('Session saved successfully!');
       } catch (error) {
         console.error('Failed to save session:', error);
       }
     }
-  }, [samples, sessionStartTime, saveSession, calibrationData, settings]);
+  }, [samples, sessionStartTime, saveSession, settings]);
 
 
   const splitTime = convertToSplitTime(fusedVelocity);
@@ -378,9 +377,8 @@ function App() {
       />
 
       <SettingsPanel 
-        isOpen={settingsPanelOpen} 
+        isOpen={settingsPanelOpen}
         onClose={() => setSettingsPanelOpen(false)}
-        motionData={latestMotionData}
         settings={settings}
         updateSettings={updateSettings}
         resetSettings={resetSettings}

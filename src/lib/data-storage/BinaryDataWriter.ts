@@ -44,39 +44,31 @@ export interface SessionMetadata {
   sessionStart?: number;
   phoneOrientation?: 'rower' | 'coxswain';
   demoMode?: boolean;
-  catchThreshold?: number;
-  finishThreshold?: number;
-  calibration?: CalibrationData | null;
-  calibrationSamples?: IMUSample[];
 }
 
 /**
  * Binary Writer for IMU/GPS data
  * Creates compact .wrcdata files for efficient storage and reprocessing
+ * 
+ * V3 Format: Uses PCA-based axis detection (no calibration data)
  */
 export class BinaryDataWriter {
-  private readonly MAGIC = 'WRC_COACH_V2\0\0\0\0\0'; // 16 bytes (V2 includes calibration)
-  private readonly HEADER_SIZE = 128; // Expanded for calibration data
+  private readonly MAGIC = 'WRC_COACH_V3\0\0\0\0\0'; // 16 bytes (V3 - PCA-based, no calibration)
+  private readonly HEADER_SIZE = 64; // Simplified header (no calibration)
   private readonly IMU_SAMPLE_SIZE = 32;
   private readonly GPS_SAMPLE_SIZE = 36;
-  private readonly CALIBRATION_SIZE = 64;
 
   /**
-   * Encode samples to binary format
+   * Encode samples to binary format (V3 - no calibration)
    */
   encode(imuSamples: IMUSample[], gpsSamples: GPSSample[], metadata: SessionMetadata = {}): ArrayBuffer {
     const imuCount = imuSamples.length;
     const gpsCount = gpsSamples.length;
-    const calibrationSamples = metadata.calibrationSamples || [];
-    const calibrationCount = calibrationSamples.length;
-    const hasCalibration = metadata.calibration ? 1 : 0;
     
-    // Calculate total size
+    // Calculate total size (no calibration in V3)
     const totalSize = this.HEADER_SIZE + 
-                     (hasCalibration ? this.CALIBRATION_SIZE : 0) +
                      (imuCount * this.IMU_SAMPLE_SIZE) + 
-                     (gpsCount * this.GPS_SAMPLE_SIZE) +
-                     (calibrationCount * this.IMU_SAMPLE_SIZE);
+                     (gpsCount * this.GPS_SAMPLE_SIZE);
     
     const buffer = new ArrayBuffer(totalSize);
     const view = new DataView(buffer);
@@ -86,19 +78,10 @@ export class BinaryDataWriter {
     offset = this.writeHeader(view, offset, {
       imuCount,
       gpsCount,
-      calibrationCount,
-      hasCalibration,
       sessionStart: metadata.sessionStart || Date.now(),
       phoneOrientation: metadata.phoneOrientation === 'coxswain' ? 1 : 0,
       demoMode: metadata.demoMode ? 1 : 0,
-      catchThreshold: metadata.catchThreshold || 0.6,
-      finishThreshold: metadata.finishThreshold || -0.3,
     });
-    
-    // Write calibration data if present
-    if (hasCalibration && metadata.calibration) {
-      offset = this.writeCalibration(view, offset, metadata.calibration);
-    }
     
     // Write IMU samples
     for (const sample of imuSamples) {
@@ -110,58 +93,32 @@ export class BinaryDataWriter {
       offset = this.writeGPSSample(view, offset, sample);
     }
     
-    // Write calibration samples (raw data collected during calibration)
-    for (const sample of calibrationSamples) {
-      offset = this.writeIMUSample(view, offset, sample);
-    }
-    
     return buffer;
   }
 
   private writeHeader(view: DataView, offset: number, header: {
     imuCount: number;
     gpsCount: number;
-    calibrationCount: number;
-    hasCalibration: number;
     sessionStart: number;
     phoneOrientation: number;
     demoMode: number;
-    catchThreshold: number;
-    finishThreshold: number;
   }): number {
     // Magic string (16 bytes)
     for (let i = 0; i < 16; i++) {
       view.setUint8(offset++, this.MAGIC.charCodeAt(i));
     }
     
+    // Counts (8 bytes)
     view.setUint32(offset, header.imuCount, true); offset += 4;
     view.setUint32(offset, header.gpsCount, true); offset += 4;
-    view.setUint32(offset, header.calibrationCount, true); offset += 4;
-    view.setUint8(offset++, header.hasCalibration);
+    
+    // Session metadata (10 bytes)
     view.setFloat64(offset, header.sessionStart, true); offset += 8;
     view.setUint8(offset++, header.phoneOrientation);
     view.setUint8(offset++, header.demoMode);
-    view.setFloat32(offset, header.catchThreshold, true); offset += 4;
-    view.setFloat32(offset, header.finishThreshold, true); offset += 4;
     
-    // Skip reserved bytes (81 bytes remaining to reach 128 total)
-    offset += 81;
-    
-    return offset;
-  }
-  
-  private writeCalibration(view: DataView, offset: number, calibration: CalibrationData): number {
-    view.setFloat32(offset, calibration.pitchOffset, true); offset += 4;
-    view.setFloat32(offset, calibration.rollOffset, true); offset += 4;
-    view.setFloat32(offset, calibration.yawOffset, true); offset += 4;
-    view.setFloat32(offset, calibration.lateralOffset, true); offset += 4;
-    view.setFloat32(offset, calibration.gravityMagnitude, true); offset += 4;
-    view.setUint32(offset, calibration.samples, true); offset += 4;
-    view.setFloat32(offset, calibration.variance, true); offset += 4;
-    view.setFloat64(offset, calibration.timestamp, true); offset += 8;
-    
-    // Reserved bytes (28 bytes to reach 64 total)
-    offset += 28;
+    // Reserved bytes (30 bytes remaining to reach 64 total)
+    offset += 30;
     
     return offset;
   }

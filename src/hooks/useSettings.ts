@@ -3,9 +3,6 @@ import { useState, useEffect } from 'react';
 export interface AppSettings {
   historyStrokes: number;
   trailOpacity: number;
-  catchThreshold: number;
-  finishThreshold: number;
-  sampleRate: number;
   demoMode: boolean;
   phoneOrientation: 'rower' | 'coxswain';
 }
@@ -13,9 +10,6 @@ export interface AppSettings {
 const DEFAULT_SETTINGS: AppSettings = {
   historyStrokes: 2,
   trailOpacity: 40,
-  catchThreshold: 0.6,
-  finishThreshold: -0.3,
-  sampleRate: 20,
   demoMode: false,
   phoneOrientation: 'rower',
 };

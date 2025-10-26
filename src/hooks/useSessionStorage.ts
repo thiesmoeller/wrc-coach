@@ -16,9 +16,6 @@ export interface SessionData {
   // Settings used during recording
   phoneOrientation?: 'rower' | 'coxswain';
   demoMode?: boolean;
-  catchThreshold?: number;
-  finishThreshold?: number;
-  calibrationData?: any;
   // Size info
   sampleCount?: number;
   dataSize?: number;
@@ -81,9 +78,6 @@ export function useSessionStorage() {
             strokeCount: oldSession.strokeCount,
             phoneOrientation: oldSession.phoneOrientation,
             demoMode: oldSession.demoMode,
-            catchThreshold: oldSession.catchThreshold,
-            finishThreshold: oldSession.finishThreshold,
-            calibrationData: oldSession.calibrationData,
           });
         } catch (error) {
           console.error('Error migrating session:', error);
@@ -111,13 +105,10 @@ export function useSessionStorage() {
         strokeCount: sessionData.strokeCount,
         phoneOrientation: sessionData.phoneOrientation,
         demoMode: sessionData.demoMode,
-        catchThreshold: sessionData.catchThreshold,
-        finishThreshold: sessionData.finishThreshold,
-        calibrationData: sessionData.calibrationData,
       });
 
       setSessions(prev => [...prev, metadata]);
-      return { ...metadata, samples: [], calibrationData: undefined };
+      return { ...metadata, samples: [] };
     } catch (error) {
       console.error('Error saving session:', error);
       alert('Error saving session. Please try again or delete old sessions.');

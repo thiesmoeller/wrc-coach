@@ -54,57 +54,38 @@ export const ParameterPanel: React.FC<Props> = ({ params, onParamsChange }) => {
           />
           <div className="param-hint">Removes noise (typical: 1.2 Hz)</div>
         </div>
-
-        <div className="param-control">
-          <label>
-            Sample Rate (Hz)
-            <span className="param-value">{params.sampleRate}</span>
-          </label>
-          <input
-            type="range"
-            min="20"
-            max="100"
-            step="5"
-            value={params.sampleRate}
-            onChange={(e) => handleChange('sampleRate', parseInt(e.target.value))}
-          />
-          <div className="param-hint">Assumed IMU sample rate (typical: 50 Hz)</div>
+        
+        <div className="info-box" style={{
+          padding: '12px',
+          backgroundColor: '#e8f4f8',
+          borderLeft: '4px solid #2196F3',
+          marginTop: '15px',
+          borderRadius: '4px'
+        }}>
+          <strong>📊 Auto-Calculated Sample Rate</strong>
+          <div style={{ fontSize: '13px', marginTop: '6px', color: '#555' }}>
+            Sample rate is automatically calculated from timestamps in the recording.
+            Check console for actual rate (typically ~50 Hz).
+          </div>
         </div>
       </div>
 
       <div className="param-section">
         <h4>Stroke Detection</h4>
         
-        <div className="param-control">
-          <label>
-            Catch Threshold (m/s²)
-            <span className="param-value">{params.catchThreshold.toFixed(2)}</span>
-          </label>
-          <input
-            type="range"
-            min="0.1"
-            max="2.0"
-            step="0.1"
-            value={params.catchThreshold}
-            onChange={(e) => handleChange('catchThreshold', parseFloat(e.target.value))}
-          />
-          <div className="param-hint">Detect catch when acceleration exceeds this</div>
-        </div>
-
-        <div className="param-control">
-          <label>
-            Finish Threshold (m/s²)
-            <span className="param-value">{params.finishThreshold.toFixed(2)}</span>
-          </label>
-          <input
-            type="range"
-            min="-2.0"
-            max="0.0"
-            step="0.1"
-            value={params.finishThreshold}
-            onChange={(e) => handleChange('finishThreshold', parseFloat(e.target.value))}
-          />
-          <div className="param-hint">Detect finish when acceleration drops below this</div>
+        <div className="info-box" style={{
+          padding: '12px',
+          backgroundColor: '#e8f4f8',
+          borderLeft: '4px solid #2196F3',
+          marginBottom: '15px',
+          borderRadius: '4px'
+        }}>
+          <strong>🎯 Fully Automatic Detection</strong>
+          <div style={{ fontSize: '13px', marginTop: '6px', color: '#555' }}>
+            Automatically detects catch peaks and segments strokes catch-to-catch. 
+            Uses adaptive thresholds based on signal statistics (90th percentile).
+            No manual tuning required - adapts to fast and slow boats.
+          </div>
         </div>
       </div>
 
@@ -115,9 +96,6 @@ export const ParameterPanel: React.FC<Props> = ({ params, onParamsChange }) => {
             onClick={() => onParamsChange({
               lowCutFreq: 0.3,
               highCutFreq: 1.2,
-              sampleRate: 50,
-              catchThreshold: 0.6,
-              finishThreshold: -0.3,
             })}
           >
             Default
@@ -126,9 +104,6 @@ export const ParameterPanel: React.FC<Props> = ({ params, onParamsChange }) => {
             onClick={() => onParamsChange({
               lowCutFreq: 0.25,
               highCutFreq: 1.5,
-              sampleRate: 50,
-              catchThreshold: 0.8,
-              finishThreshold: -0.4,
             })}
           >
             Sensitive
@@ -137,9 +112,6 @@ export const ParameterPanel: React.FC<Props> = ({ params, onParamsChange }) => {
             onClick={() => onParamsChange({
               lowCutFreq: 0.35,
               highCutFreq: 1.0,
-              sampleRate: 50,
-              catchThreshold: 0.4,
-              finishThreshold: -0.2,
             })}
           >
             Relaxed

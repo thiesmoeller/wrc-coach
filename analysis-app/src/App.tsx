@@ -21,9 +21,6 @@ function App() {
   const [params, setParams] = useState<AnalysisParams>({
     lowCutFreq: 0.3,
     highCutFreq: 1.2,
-    sampleRate: 50,
-    catchThreshold: 0.6,
-    finishThreshold: -0.3,
   });
   const [activeTab, setActiveTab] = useState<'overview' | 'strokes' | 'gps' | 'raw' | 'pwa-preview'>('overview');
   const [fileName, setFileName] = useState<string>('');

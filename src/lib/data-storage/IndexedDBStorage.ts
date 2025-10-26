@@ -27,9 +27,6 @@ export interface SessionMetadataStorage {
   // Settings used during recording
   phoneOrientation?: 'rower' | 'coxswain';
   demoMode?: boolean;
-  catchThreshold?: number;
-  finishThreshold?: number;
-  hasCalibrationData?: boolean;
   // Data size info
   sampleCount: number;
   dataSize: number; // Size in bytes
@@ -38,7 +35,6 @@ export interface SessionMetadataStorage {
 export interface SessionFullData extends SessionMetadataStorage {
   // Full data (stored in IndexedDB, not in localStorage)
   samples: any[];
-  calibrationData?: any;
 }
 
 /**
@@ -127,14 +123,11 @@ export class IndexedDBStorage {
       }
     }
     
-    // Create binary data
+    // Create binary data (V3 format - no calibration, no thresholds)
     const metadata: SessionMetadata = {
       sessionStart: sessionData.sessionStartTime,
       phoneOrientation: sessionData.phoneOrientation,
       demoMode: sessionData.demoMode,
-      catchThreshold: sessionData.catchThreshold,
-      finishThreshold: sessionData.finishThreshold,
-      calibration: sessionData.calibrationData,
     };
     
     const binaryData = this.writer.encode(imuSamples, gpsSamples, metadata);
@@ -152,9 +145,6 @@ export class IndexedDBStorage {
       strokeCount: sessionData.strokeCount,
       phoneOrientation: sessionData.phoneOrientation,
       demoMode: sessionData.demoMode,
-      catchThreshold: sessionData.catchThreshold,
-      finishThreshold: sessionData.finishThreshold,
-      hasCalibrationData: !!sessionData.calibrationData,
       sampleCount: sessionData.samples.length,
       dataSize: binaryData.byteLength,
       binaryData, // Store as ArrayBuffer
