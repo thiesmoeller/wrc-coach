@@ -16,3 +16,10 @@ export {
   type DecodedData,
 } from './BinaryDataReader';
 
+export {
+  IndexedDBStorage,
+  getIndexedDBStorage,
+  type SessionMetadataStorage,
+  type SessionFullData,
+} from './IndexedDBStorage';
+

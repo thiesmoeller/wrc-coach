@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import { type SessionData } from '../hooks';
-import { BinaryDataWriter, type IMUSample, type GPSSample } from '../lib/data-storage';
+import { type SessionMetadataStorage } from '../lib/data-storage/IndexedDBStorage';
 import { ConfirmDialog } from './ConfirmDialog';
 import './SessionPanel.css';
 
@@ -9,119 +8,118 @@ interface SessionPanelProps {
   onClose: () => void;
   onNewSession: () => void;
   isRecording: boolean;
-  sessions: SessionData[];
-  deleteSession: (sessionId: string) => void;
-  clearAllSessions: () => void;
+  sessions: SessionMetadataStorage[];
+  deleteSession: (sessionId: string) => Promise<void>;
+  clearAllSessions: () => Promise<void>;
+  getSessionBinary: (sessionId: string) => Promise<ArrayBuffer | null>;
+  isLoading?: boolean;
 }
 
-export function SessionPanel({ isOpen, onClose, onNewSession, isRecording, sessions, deleteSession, clearAllSessions }: SessionPanelProps) {
+export function SessionPanel({ 
+  isOpen, 
+  onClose, 
+  onNewSession, 
+  isRecording, 
+  sessions, 
+  deleteSession, 
+  clearAllSessions,
+  getSessionBinary,
+  isLoading = false,
+}: SessionPanelProps) {
   const [confirmDelete, setConfirmDelete] = useState<{ show: boolean; sessionId?: string }>({ show: false });
   const [confirmClearAll, setConfirmClearAll] = useState(false);
+  const [exportingId, setExportingId] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  const handleExport = async (session: SessionData) => {
-    const timestamp = new Date(session.sessionStartTime).toISOString().replace(/[:.]/g, '-');
-    const filename = `wrc_coach_${timestamp}.wrcdata`;
-    
-    // Separate IMU and GPS samples
-    const imuSamples: IMUSample[] = session.samples
-      .filter((s) => s.type === 'imu')
-      .map((s) => ({
-        t: s.t,
-        ax: s.ax!,
-        ay: s.ay!,
-        az: s.az!,
-        gx: s.gx!,
-        gy: s.gy!,
-        gz: s.gz!,
-      }));
-
-    const gpsSamples: GPSSample[] = session.samples
-      .filter((s) => s.type === 'gps')
-      .map((s) => ({
-        t: s.t,
-        lat: s.lat!,
-        lon: s.lon!,
-        speed: s.speed!,
-        heading: s.heading!,
-        accuracy: s.accuracy!,
-      }));
-
-    // Export binary
-    const writer = new BinaryDataWriter();
-    const buffer = writer.encode(imuSamples, gpsSamples, {
-      sessionStart: session.sessionStartTime,
-      phoneOrientation: session.phoneOrientation || 'rower',
-      demoMode: session.demoMode || false,
-      catchThreshold: session.catchThreshold || 0.3,
-      finishThreshold: session.finishThreshold || 0.8,
-      calibration: session.calibrationData,
-      calibrationSamples: [],
-    });
-
-    const blob = new Blob([buffer], { type: 'application/octet-stream' });
-    
-    // Try Web Share API first (mobile)
-    if (navigator.share) {
-      console.log('Web Share API available, attempting to share...');
-      try {
-        const file = new File([blob], filename, { type: 'application/octet-stream' });
-        
-        // Debug: Check if canShare exists and what it reports
-        if (navigator.canShare) {
-          const canShareResult = navigator.canShare({ files: [file] });
-          console.log('navigator.canShare result:', canShareResult);
-        } else {
-          console.log('navigator.canShare not available, trying share anyway...');
-        }
-        
-        // Try to share the file
-        // Note: Some browsers support file sharing but report false for canShare
-        // So we try regardless and handle failures gracefully
-        await navigator.share({
-          files: [file],
-          title: 'WRC Coach Session Data',
-          text: `Session from ${new Date(session.sessionStartTime).toLocaleString()}`,
-        });
-        console.log('Share successful!');
+  const handleExport = async (session: SessionMetadataStorage) => {
+    setExportingId(session.id);
+    try {
+      const timestamp = new Date(session.sessionStartTime).toISOString().replace(/[:.]/g, '-');
+      const filename = `wrc_coach_${timestamp}.wrcdata`;
+      
+      // Get binary data directly from IndexedDB (no need to reconstruct)
+      const buffer = await getSessionBinary(session.id);
+      if (!buffer) {
+        console.error('Failed to get session binary data');
+        alert('Failed to export session. Please try again.');
         return;
-      } catch (err: any) {
-        // User cancelled the share (AbortError) - don't fall back to download
-        if (err.name === 'AbortError') {
-          console.log('Share cancelled by user');
-          return;
-        }
-        // Actual error - log and fall back to download
-        console.log('Share failed:', err.name, err.message);
-        console.log('Falling back to download...');
       }
-    } else {
-      console.log('Web Share API not available, using download fallback');
-    }
+
+      const blob = new Blob([buffer], { type: 'application/octet-stream' });
     
-    // Fallback to traditional download (desktop or if share fails)
-    console.log('Triggering download...');
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
+      // Try Web Share API first (mobile)
+      if (navigator.share) {
+        console.log('Web Share API available, attempting to share...');
+        try {
+          const file = new File([blob], filename, { type: 'application/octet-stream' });
+          
+          // Debug: Check if canShare exists and what it reports
+          if (navigator.canShare) {
+            const canShareResult = navigator.canShare({ files: [file] });
+            console.log('navigator.canShare result:', canShareResult);
+          } else {
+            console.log('navigator.canShare not available, trying share anyway...');
+          }
+          
+          // Try to share the file
+          // Note: Some browsers support file sharing but report false for canShare
+          // So we try regardless and handle failures gracefully
+          await navigator.share({
+            files: [file],
+            title: 'WRC Coach Session Data',
+            text: `Session from ${new Date(session.sessionStartTime).toLocaleString()}`,
+          });
+          console.log('Share successful!');
+          return;
+        } catch (err: any) {
+          // User cancelled the share (AbortError) - don't fall back to download
+          if (err.name === 'AbortError') {
+            console.log('Share cancelled by user');
+            return;
+          }
+          // Actual error - log and fall back to download
+          console.log('Share failed:', err.name, err.message);
+          console.log('Falling back to download...');
+        }
+      } else {
+        console.log('Web Share API not available, using download fallback');
+      }
+      
+      // Fallback to traditional download (desktop or if share fails)
+      console.log('Triggering download...');
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error exporting session:', error);
+      alert('Failed to export session. Please try again.');
+    } finally {
+      setExportingId(null);
+    }
   };
 
   const handleDelete = (sessionId: string) => {
     setConfirmDelete({ show: true, sessionId });
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (confirmDelete.sessionId) {
-      deleteSession(confirmDelete.sessionId);
+      await deleteSession(confirmDelete.sessionId);
+      setConfirmDelete({ show: false });
     }
   };
 
   const handleClearAll = () => {
     setConfirmClearAll(true);
+  };
+  
+  const handleConfirmClearAll = async () => {
+    await clearAllSessions();
+    setConfirmClearAll(false);
   };
 
   const formatDuration = (ms: number) => {
@@ -143,6 +141,16 @@ export function SessionPanel({ isOpen, onClose, onNewSession, isRecording, sessi
     return `${Math.round(meters)} m`;
   };
 
+  const formatSize = (bytes: number) => {
+    if (bytes >= 1024 * 1024) {
+      return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+    }
+    if (bytes >= 1024) {
+      return `${(bytes / 1024).toFixed(1)} KB`;
+    }
+    return `${bytes} B`;
+  };
+
   const sortedSessions = [...sessions].sort((a, b) => b.timestamp - a.timestamp);
 
   return (
@@ -156,7 +164,12 @@ export function SessionPanel({ isOpen, onClose, onNewSession, isRecording, sessi
         </div>
 
         <div className="session-panel-content">
-          {sortedSessions.length === 0 ? (
+          {isLoading ? (
+            <div className="empty-state">
+              <div className="empty-state-icon">⏳</div>
+              <p><strong>Loading sessions...</strong></p>
+            </div>
+          ) : sortedSessions.length === 0 ? (
             <div className="empty-state">
               <div className="empty-state-icon">📊</div>
               <p><strong>No sessions recorded yet</strong></p>
@@ -195,6 +208,10 @@ export function SessionPanel({ isOpen, onClose, onNewSession, isRecording, sessi
                         <span className="meta-label">Distance</span>
                         <span className="meta-value">{formatDistance(session.totalDistance)}</span>
                       </div>
+                      <div className="meta-item">
+                        <span className="meta-label">Size</span>
+                        <span className="meta-value">{formatSize(session.dataSize)}</span>
+                      </div>
                     </div>
                   </div>
                   <div className="session-actions">
@@ -202,8 +219,9 @@ export function SessionPanel({ isOpen, onClose, onNewSession, isRecording, sessi
                       className="session-btn export"
                       onClick={() => handleExport(session)}
                       title="Share/Export session data"
+                      disabled={exportingId === session.id}
                     >
-                      📤 Share
+                      {exportingId === session.id ? '⏳ Exporting...' : '📤 Share'}
                     </button>
                     <button
                       className="session-btn delete"
@@ -260,7 +278,7 @@ export function SessionPanel({ isOpen, onClose, onNewSession, isRecording, sessi
         confirmText="Clear All"
         cancelText="Cancel"
         danger={true}
-        onConfirm={clearAllSessions}
+        onConfirm={handleConfirmClearAll}
         onCancel={() => setConfirmClearAll(false)}
       />
     </div>

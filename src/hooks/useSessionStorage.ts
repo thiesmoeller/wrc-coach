@@ -1,4 +1,5 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { getIndexedDBStorage, SessionMetadataStorage, SessionFullData } from '../lib/data-storage/IndexedDBStorage';
 
 export interface SessionData {
   id: string;
@@ -18,81 +19,166 @@ export interface SessionData {
   catchThreshold?: number;
   finishThreshold?: number;
   calibrationData?: any;
+  // Size info
+  sampleCount?: number;
+  dataSize?: number;
 }
 
-const STORAGE_KEY = 'wrc_coach_sessions';
+const OLD_STORAGE_KEY = 'wrc_coach_sessions';
+const MIGRATION_KEY = 'wrc_coach_migrated_to_indexeddb';
 
 export function useSessionStorage() {
-  const [sessions, setSessions] = useState<SessionData[]>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      return stored ? JSON.parse(stored) : [];
-    } catch (error) {
-      console.error('Error loading sessions:', error);
-      return [];
-    }
-  });
+  const [sessions, setSessions] = useState<SessionMetadataStorage[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const storage = getIndexedDBStorage();
 
-  const saveSession = useCallback((sessionData: Omit<SessionData, 'id' | 'timestamp'>) => {
-    const newSession: SessionData = {
-      ...sessionData,
-      id: `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      timestamp: Date.now(),
-    };
-
-    setSessions(prev => {
-      const updated = [...prev, newSession];
+  // Load sessions from IndexedDB on mount
+  useEffect(() => {
+    async function loadSessions() {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+        // Initialize IndexedDB
+        await storage.init();
+        
+        // Check if we need to migrate from localStorage
+        const alreadyMigrated = localStorage.getItem(MIGRATION_KEY);
+        if (!alreadyMigrated) {
+          await migrateFromLocalStorage();
+          localStorage.setItem(MIGRATION_KEY, 'true');
+        }
+        
+        // Load sessions from IndexedDB
+        const metadata = await storage.getAllSessionMetadata();
+        setSessions(metadata);
       } catch (error) {
-        console.error('Error saving session:', error);
-        // If storage is full, remove oldest session and try again
-        const trimmed = updated.slice(1);
+        console.error('Error loading sessions:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    
+    loadSessions();
+  }, []);
+
+  // Migrate old localStorage sessions to IndexedDB
+  const migrateFromLocalStorage = async () => {
+    try {
+      const oldData = localStorage.getItem(OLD_STORAGE_KEY);
+      if (!oldData) return;
+      
+      const oldSessions: SessionData[] = JSON.parse(oldData);
+      console.log(`Migrating ${oldSessions.length} sessions from localStorage to IndexedDB...`);
+      
+      for (const oldSession of oldSessions) {
         try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
-          return trimmed;
-        } catch {
-          alert('Storage full! Please delete some sessions.');
-          return prev;
+          await storage.saveSession({
+            sessionStartTime: oldSession.sessionStartTime,
+            duration: oldSession.duration,
+            samples: oldSession.samples,
+            avgStrokeRate: oldSession.avgStrokeRate,
+            avgDrivePercent: oldSession.avgDrivePercent,
+            maxSpeed: oldSession.maxSpeed,
+            totalDistance: oldSession.totalDistance,
+            strokeCount: oldSession.strokeCount,
+            phoneOrientation: oldSession.phoneOrientation,
+            demoMode: oldSession.demoMode,
+            catchThreshold: oldSession.catchThreshold,
+            finishThreshold: oldSession.finishThreshold,
+            calibrationData: oldSession.calibrationData,
+          });
+        } catch (error) {
+          console.error('Error migrating session:', error);
         }
       }
-      return updated;
-    });
+      
+      // Clear old localStorage data
+      localStorage.removeItem(OLD_STORAGE_KEY);
+      console.log('Migration complete!');
+    } catch (error) {
+      console.error('Error during migration:', error);
+    }
+  };
 
-    return newSession;
-  }, []);
-
-  const deleteSession = useCallback((sessionId: string) => {
-    setSessions(prev => {
-      const updated = prev.filter(s => s.id !== sessionId);
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      } catch (error) {
-        console.error('Error deleting session:', error);
-      }
-      return updated;
-    });
-  }, []);
-
-  const clearAllSessions = useCallback(() => {
-    setSessions([]);
+  const saveSession = useCallback(async (sessionData: Omit<SessionData, 'id' | 'timestamp'>) => {
     try {
-      localStorage.removeItem(STORAGE_KEY);
+      const metadata = await storage.saveSession({
+        sessionStartTime: sessionData.sessionStartTime,
+        duration: sessionData.duration,
+        samples: sessionData.samples,
+        avgStrokeRate: sessionData.avgStrokeRate,
+        avgDrivePercent: sessionData.avgDrivePercent,
+        maxSpeed: sessionData.maxSpeed,
+        totalDistance: sessionData.totalDistance,
+        strokeCount: sessionData.strokeCount,
+        phoneOrientation: sessionData.phoneOrientation,
+        demoMode: sessionData.demoMode,
+        catchThreshold: sessionData.catchThreshold,
+        finishThreshold: sessionData.finishThreshold,
+        calibrationData: sessionData.calibrationData,
+      });
+
+      setSessions(prev => [...prev, metadata]);
+      return { ...metadata, samples: [], calibrationData: undefined };
+    } catch (error) {
+      console.error('Error saving session:', error);
+      alert('Error saving session. Please try again or delete old sessions.');
+      throw error;
+    }
+  }, []);
+
+  const deleteSession = useCallback(async (sessionId: string) => {
+    try {
+      await storage.deleteSession(sessionId);
+      setSessions(prev => prev.filter(s => s.id !== sessionId));
+    } catch (error) {
+      console.error('Error deleting session:', error);
+    }
+  }, []);
+
+  const clearAllSessions = useCallback(async () => {
+    try {
+      await storage.clearAllSessions();
+      setSessions([]);
     } catch (error) {
       console.error('Error clearing sessions:', error);
     }
   }, []);
 
-  const getSession = useCallback((sessionId: string) => {
-    return sessions.find(s => s.id === sessionId);
-  }, [sessions]);
+  const getSession = useCallback(async (sessionId: string): Promise<SessionFullData | null> => {
+    try {
+      return await storage.getSession(sessionId);
+    } catch (error) {
+      console.error('Error getting session:', error);
+      return null;
+    }
+  }, []);
+
+  const getSessionBinary = useCallback(async (sessionId: string): Promise<ArrayBuffer | null> => {
+    try {
+      return await storage.getSessionBinary(sessionId);
+    } catch (error) {
+      console.error('Error getting session binary:', error);
+      return null;
+    }
+  }, []);
+
+  const getStorageStats = useCallback(async () => {
+    try {
+      return await storage.getStorageStats();
+    } catch (error) {
+      console.error('Error getting storage stats:', error);
+      return { sessionCount: 0, totalSize: 0 };
+    }
+  }, []);
 
   return {
     sessions,
+    isLoading,
     saveSession,
     deleteSession,
     clearAllSessions,
     getSession,
+    getSessionBinary,
+    getStorageStats,
   };
 }
 

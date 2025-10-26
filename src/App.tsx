@@ -42,7 +42,7 @@ interface Sample {
 function App() {
   const { settings, updateSettings, resetSettings } = useSettings();
   const { applyCalibration, isCalibrated, calibrationData } = useCalibration();
-  const { sessions, saveSession, deleteSession, clearAllSessions } = useSessionStorage();
+  const { sessions, isLoading, saveSession, deleteSession, clearAllSessions, getSessionBinary } = useSessionStorage();
   const [isRunning, setIsRunning] = useState(false);
   const [samples, setSamples] = useState<Sample[]>([]);
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
@@ -243,7 +243,7 @@ function App() {
   }, []);
 
   // Stop session and save
-  const handleStop = useCallback(() => {
+  const handleStop = useCallback(async () => {
     setIsRunning(false);
     lastIMUTimeRef.current = null;
     
@@ -289,21 +289,26 @@ function App() {
     
     // Save session if we have data
     if (samples.length > 0) {
-      saveSession({
-        duration,
-        samples,
-        sessionStartTime: sessionStartTime!,
-        avgStrokeRate,
-        avgDrivePercent,
-        maxSpeed,
-        totalDistance,
-        strokeCount: strokeRatesRef.current.length,
-        phoneOrientation: settings.phoneOrientation,
-        demoMode: settings.demoMode,
-        catchThreshold: settings.catchThreshold,
-        finishThreshold: settings.finishThreshold,
-        calibrationData,
-      });
+      try {
+        await saveSession({
+          duration,
+          samples,
+          sessionStartTime: sessionStartTime!,
+          avgStrokeRate,
+          avgDrivePercent,
+          maxSpeed,
+          totalDistance,
+          strokeCount: strokeRatesRef.current.length,
+          phoneOrientation: settings.phoneOrientation,
+          demoMode: settings.demoMode,
+          catchThreshold: settings.catchThreshold,
+          finishThreshold: settings.finishThreshold,
+          calibrationData,
+        });
+        console.log('Session saved successfully!');
+      } catch (error) {
+        console.error('Failed to save session:', error);
+      }
     }
   }, [samples, sessionStartTime, saveSession, calibrationData, settings]);
 
@@ -368,6 +373,8 @@ function App() {
         sessions={sessions}
         deleteSession={deleteSession}
         clearAllSessions={clearAllSessions}
+        getSessionBinary={getSessionBinary}
+        isLoading={isLoading}
       />
 
       <SettingsPanel 
