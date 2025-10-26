@@ -1,7 +1,7 @@
-import type { IMUSample, GPSSample, SessionData } from '../types';
+import type { IMUSample, GPSSample, SessionData, CalibrationData } from '../types';
 
 /**
- * Binary Reader for .wrcdata files (V1 format)
+ * Binary Reader for .wrcdata files (V1 and V2 formats)
  * Decodes binary format back to usable data
  */
 export class BinaryDataReader {
@@ -11,6 +11,7 @@ export class BinaryDataReader {
   private readonly HEADER_SIZE_V2 = 128;
   private readonly IMU_SAMPLE_SIZE = 32;
   private readonly GPS_SAMPLE_SIZE = 36;
+  private readonly CALIBRATION_SIZE = 64;
 
   /**
    * Decode binary data from .wrcdata file
@@ -33,12 +34,14 @@ export class BinaryDataReader {
     const metadata = this.readHeader(view, offset, version);
     offset += headerSize;
     
-    // Skip calibration data if V2
+    // Read calibration data if V2
+    let calibration: CalibrationData | null = null;
     if (version === 2) {
       // Check if has_calibration flag is set
       const hasCalibration = view.getUint8(28) === 1;
       if (hasCalibration) {
-        offset += 64; // Skip calibration block
+        calibration = this.readCalibration(view, offset);
+        offset += this.CALIBRATION_SIZE;
       }
     }
     
@@ -62,6 +65,7 @@ export class BinaryDataReader {
       metadata,
       imuSamples,
       gpsSamples,
+      calibration,
     };
   }
 
@@ -98,6 +102,28 @@ export class BinaryDataReader {
       demoMode,
       catchThreshold,
       finishThreshold,
+    };
+  }
+
+  private readCalibration(view: DataView, offset: number): CalibrationData {
+    const pitchOffset = view.getFloat32(offset, true); offset += 4;
+    const rollOffset = view.getFloat32(offset, true); offset += 4;
+    const yawOffset = view.getFloat32(offset, true); offset += 4;
+    const lateralOffset = view.getFloat32(offset, true); offset += 4;
+    const gravityMagnitude = view.getFloat32(offset, true); offset += 4;
+    const samples = view.getUint32(offset, true); offset += 4;
+    const variance = view.getFloat32(offset, true); offset += 4;
+    const timestamp = view.getFloat64(offset, true);
+    
+    return {
+      pitchOffset,
+      rollOffset,
+      yawOffset,
+      lateralOffset,
+      gravityMagnitude,
+      samples,
+      variance,
+      timestamp,
     };
   }
 

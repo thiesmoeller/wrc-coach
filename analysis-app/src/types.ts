@@ -36,6 +36,20 @@ export interface StrokeInfo {
 }
 
 /**
+ * Calibration data
+ */
+export interface CalibrationData {
+  pitchOffset: number;
+  rollOffset: number;
+  yawOffset: number;
+  lateralOffset: number;
+  gravityMagnitude: number;
+  samples: number;
+  variance: number;
+  timestamp: number;
+}
+
+/**
  * Session metadata
  */
 export interface SessionMetadata {
@@ -57,6 +71,7 @@ export interface SessionData {
   metadata: SessionMetadata;
   imuSamples: IMUSample[];
   gpsSamples: GPSSample[];
+  calibration?: CalibrationData | null;
 }
 
 /**

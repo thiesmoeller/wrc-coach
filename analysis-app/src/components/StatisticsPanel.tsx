@@ -140,6 +140,33 @@ export const StatisticsPanel: React.FC<Props> = ({ sessionData, analysisResults 
           <div className="stat-value">{metadata.demoMode ? 'Yes' : 'No'}</div>
         </div>
       </div>
+
+      {sessionData.calibration && (
+        <>
+          <h4>Calibration</h4>
+          <div className="stats-grid">
+            <div className="stat-card">
+              <div className="stat-label">Status</div>
+              <div className="stat-value">✓ Applied</div>
+            </div>
+
+            <div className="stat-card">
+              <div className="stat-label">Pitch Offset</div>
+              <div className="stat-value">{sessionData.calibration.pitchOffset.toFixed(2)}°</div>
+            </div>
+
+            <div className="stat-card">
+              <div className="stat-label">Roll Offset</div>
+              <div className="stat-value">{sessionData.calibration.rollOffset.toFixed(2)}°</div>
+            </div>
+
+            <div className="stat-card">
+              <div className="stat-label">Quality (variance)</div>
+              <div className="stat-value">{sessionData.calibration.variance.toFixed(3)}</div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 };

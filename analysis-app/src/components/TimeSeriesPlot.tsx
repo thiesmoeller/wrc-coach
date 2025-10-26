@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import './TimeSeriesPlot.css';
 
 interface DataSeries {
@@ -25,8 +25,15 @@ interface Props {
   showGrid?: boolean;
 }
 
+interface ViewState {
+  xMin: number;
+  xMax: number;
+  yMin: number;
+  yMax: number;
+}
+
 /**
- * SVG-based time series plot component
+ * SVG-based time series plot component with zoom and pan
  * Optimized for desktop/tablet viewing
  */
 export const TimeSeriesPlot: React.FC<Props> = ({
@@ -51,21 +58,151 @@ export const TimeSeriesPlot: React.FC<Props> = ({
     );
   }
 
-  // Calculate data bounds
-  const xMin = Math.min(...timeVector);
-  const xMax = Math.max(...timeVector);
-  const xRange = xMax - xMin || 1;
-
-  // Find y bounds across all series
+  // Calculate initial data bounds
+  const dataXMin = Math.min(...timeVector);
+  const dataXMax = Math.max(...timeVector);
   const allValues = series.flatMap(s => s.data).filter(v => isFinite(v));
-  const yMin = Math.min(...allValues);
-  const yMax = Math.max(...allValues);
+  const dataYMin = Math.min(...allValues);
+  const dataYMax = Math.max(...allValues);
+  const dataYRange = dataYMax - dataYMin || 1;
+  const dataYPadding = dataYRange * 0.1;
+
+  // Zoom and pan state
+  const [viewState, setViewState] = useState<ViewState>({
+    xMin: dataXMin,
+    xMax: dataXMax,
+    yMin: dataYMin - dataYPadding,
+    yMax: dataYMax + dataYPadding,
+  });
+
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  // Use view state for bounds
+  const xMin = viewState.xMin;
+  const xMax = viewState.xMax;
+  const xRange = xMax - xMin || 1;
+  const yMin = viewState.yMin;
+  const yMax = viewState.yMax;
   const yRange = yMax - yMin || 1;
-  const yPadding = yRange * 0.1;
 
   // Scale functions
   const scaleX = (x: number) => ((x - xMin) / xRange) * plotWidth;
-  const scaleY = (y: number) => plotHeight - ((y - (yMin - yPadding)) / (yRange + 2 * yPadding)) * plotHeight;
+  const scaleY = (y: number) => plotHeight - ((y - yMin) / yRange) * plotHeight;
+  
+  // Inverse scale functions
+  const unscaleX = (sx: number) => (sx / plotWidth) * xRange + xMin;
+  const unscaleY = (sy: number) => yMin + (plotHeight - sy) / plotHeight * yRange;
+
+  // Zoom handler (X-axis only)
+  const handleWheel = useCallback((e: React.WheelEvent<SVGSVGElement>) => {
+    e.preventDefault();
+    
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    // Get mouse position relative to plot area
+    const mouseX = e.clientX - rect.left - padding.left;
+    const mouseY = e.clientY - rect.top - padding.top;
+
+    // Don't zoom if outside plot area
+    if (mouseX < 0 || mouseX > plotWidth || mouseY < 0 || mouseY > plotHeight) return;
+
+    // Get data coordinates at mouse position
+    const dataX = unscaleX(mouseX);
+
+    // Zoom factor
+    const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9;
+
+    setViewState(prev => {
+      const newXRange = (prev.xMax - prev.xMin) * zoomFactor;
+
+      // Keep mouse position fixed during zoom
+      const xRatio = (dataX - prev.xMin) / (prev.xMax - prev.xMin);
+
+      let newXMin = dataX - newXRange * xRatio;
+      let newXMax = dataX + newXRange * (1 - xRatio);
+
+      // Constrain to data bounds
+      if (newXMin < dataXMin) {
+        newXMin = dataXMin;
+        newXMax = dataXMin + newXRange;
+      }
+      if (newXMax > dataXMax) {
+        newXMax = dataXMax;
+        newXMin = dataXMax - newXRange;
+      }
+
+      return {
+        xMin: newXMin,
+        xMax: newXMax,
+        yMin: prev.yMin,  // Keep Y range constant
+        yMax: prev.yMax,  // Keep Y range constant
+      };
+    });
+  }, [dataXMin, dataXMax, plotWidth, plotHeight, padding.left, padding.top, unscaleX]);
+
+  // Pan handlers
+  const handleMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const mouseX = e.clientX - rect.left - padding.left;
+    const mouseY = e.clientY - rect.top - padding.top;
+
+    // Only pan if inside plot area
+    if (mouseX >= 0 && mouseX <= plotWidth && mouseY >= 0 && mouseY <= plotHeight) {
+      setIsDragging(true);
+      setDragStart({ x: e.clientX, y: e.clientY });
+    }
+  }, [plotWidth, plotHeight, padding.left, padding.top]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    if (!isDragging) return;
+
+    const dx = e.clientX - dragStart.x;
+
+    const dataXShift = -(dx / plotWidth) * xRange;
+
+    setViewState(prev => {
+      let newXMin = prev.xMin + dataXShift;
+      let newXMax = prev.xMax + dataXShift;
+
+      // Constrain to data bounds
+      if (newXMin < dataXMin) {
+        newXMin = dataXMin;
+        newXMax = dataXMin + (prev.xMax - prev.xMin);
+      }
+      if (newXMax > dataXMax) {
+        newXMax = dataXMax;
+        newXMin = dataXMax - (prev.xMax - prev.xMin);
+      }
+
+      return {
+        xMin: newXMin,
+        xMax: newXMax,
+        yMin: prev.yMin,  // Keep Y range constant
+        yMax: prev.yMax,  // Keep Y range constant
+      };
+    });
+
+    setDragStart({ x: e.clientX, y: e.clientY });
+  }, [isDragging, dragStart, plotWidth, xRange, dataXMin, dataXMax]);
+
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  const handleDoubleClick = useCallback(() => {
+    // Reset to original view
+    setViewState({
+      xMin: dataXMin,
+      xMax: dataXMax,
+      yMin: dataYMin - dataYPadding,
+      yMax: dataYMax + dataYPadding,
+    });
+  }, [dataXMin, dataXMax, dataYMin, dataYMax, dataYPadding]);
 
   // Generate path for a data series
   const generatePath = (data: number[]) => {
@@ -81,7 +218,7 @@ export const TimeSeriesPlot: React.FC<Props> = ({
   const numYTicks = 5;
   const numXTicks = 10;
   const yTicks = Array.from({ length: numYTicks }, (_, i) => {
-    const value = yMin - yPadding + (i / (numYTicks - 1)) * (yRange + 2 * yPadding);
+    const value = yMin + (i / (numYTicks - 1)) * yRange;
     return { value, y: scaleY(value) };
   });
   const xTicks = Array.from({ length: numXTicks }, (_, i) => {
@@ -115,8 +252,35 @@ export const TimeSeriesPlot: React.FC<Props> = ({
   };
 
   return (
-    <div className="time-series-plot" style={{ height }}>
-      <svg width={width} height={height} className="plot-svg">
+    <div className="time-series-plot" style={{ height, position: 'relative' }}>
+      {/* Instructions */}
+      <div style={{
+        position: 'absolute',
+        top: '5px',
+        right: '10px',
+        fontSize: '11px',
+        color: '#666',
+        background: 'rgba(255,255,255,0.9)',
+        padding: '4px 8px',
+        borderRadius: '4px',
+        pointerEvents: 'none',
+        zIndex: 10
+      }}>
+        🖱️ Drag to pan (X) • Scroll to zoom (X) • Double-click to reset
+      </div>
+      <svg 
+        ref={svgRef}
+        width={width} 
+        height={height} 
+        className="plot-svg"
+        style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+        onWheel={handleWheel}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        onDoubleClick={handleDoubleClick}
+      >
         {/* Title */}
         <text
           x={width / 2}
