@@ -15,10 +15,10 @@ wrc-coach/
 │   │   └── ...
 │   │
 │   └── components/             🔗 SHARED UI COMPONENTS
-│       ├── PolarPlot.tsx       ← Used by both apps
-│       ├── PolarPlot.css       ← Shared styling (imported by both)
-│       ├── StabilityPlot.tsx   ← Used by both apps
-│       ├── StabilityPlot.css   ← Shared styling (imported by both)
+│       ├── CartesianPlot.tsx     ← Used by both apps
+│       ├── CartesianPlot.css     ← Shared styling (imported by both)
+│       ├── StabilityPlot.tsx     ← Used by both apps
+│       ├── StabilityPlot.css     ← Shared styling (imported by both)
 │       ├── MetricsBar.tsx      ← Used by both apps
 │       └── MetricsBar.css      ← Shared styling (imported by both)
 │
@@ -39,27 +39,27 @@ wrc-coach/
 
 ```typescript
 // Import shared components from PWA
-import { PolarPlot } from '@wrc-coach/components/PolarPlot';
+import { CartesianPlot } from '@wrc-coach/components/CartesianPlot';
 import { StabilityPlot } from '@wrc-coach/components/StabilityPlot';
 import { MetricsBar } from '@wrc-coach/components/MetricsBar';
 
 // Import shared CSS from PWA (Vite handles this automatically)
-import '@wrc-coach/components/PolarPlot.css';
+import '@wrc-coach/components/CartesianPlot.css';
 import '@wrc-coach/components/StabilityPlot.css';
 import '@wrc-coach/components/MetricsBar.css';
 
 // Use them exactly as in PWA
-<PolarPlot samples={data} historyStrokes={3} trailOpacity={50} />
+<CartesianPlot samples={data} historyStrokes={3} trailOpacity={50} />
 ```
 
 **Key Point:** Both the TypeScript components AND their CSS are imported from the shared location - no duplication!
 
 ## Shared Components
 
-### 1. PolarPlot (Acceleration Pattern)
-**Location:** `src/components/PolarPlot.tsx`
+### 1. CartesianPlot (Acceleration Pattern)
+**Location:** `src/components/CartesianPlot.tsx`
 
-**Purpose:** Visualizes rowing stroke acceleration pattern
+**Purpose:** Visualizes rowing stroke acceleration pattern in cartesian coordinates
 
 **Props:**
 - `samples` - Array of samples with `t`, `surgeHP`, `inDrive`
@@ -126,7 +126,7 @@ The Analysis App includes a **PWA Preview tab** that:
    - Reset button
 
 2. **Live Component Preview**
-   - Shows PolarPlot with historical data
+   - Shows CartesianPlot with historical data
    - Shows StabilityPlot with roll data
    - Shows MetricsBar with current metrics
    - Simulates real-time PWA experience
@@ -175,7 +175,7 @@ The Analysis App includes a **PWA Preview tab** that:
 
 1. **Edit component** in `src/components/`
    ```bash
-   vim src/components/PolarPlot.tsx
+   vim src/components/CartesianPlot.tsx
    ```
 
 2. **Test in PWA** (live data)
@@ -204,7 +204,7 @@ The Analysis App includes a **PWA Preview tab** that:
 
 ## Component-Specific Notes
 
-### PolarPlot Performance
+### CartesianPlot Performance
 
 Canvas rendering for smooth 50Hz updates:
 - Uses `requestAnimationFrame` implicitly via React
@@ -248,7 +248,7 @@ CSS files are **imported directly** from PWA components:
 
 ```typescript
 // In analysis app
-import '@wrc-coach/components/PolarPlot.css';
+import '@wrc-coach/components/CartesianPlot.css';
 ```
 
 Vite automatically resolves the aliased path and includes the CSS in the bundle.
@@ -332,7 +332,7 @@ cp src/components/*.css analysis-app/src/components/
 **Solution:** Check TypeScript interfaces match:
 ```typescript
 // Should be identical in both apps
-interface PolarPlotProps {
+interface CartesianPlotProps {
   samples: Array<{...}>;
   historyStrokes: number;
   trailOpacity: number;
@@ -341,9 +341,9 @@ interface PolarPlotProps {
 
 ## Real-World Example
 
-### Optimizing PolarPlot
+### Optimizing CartesianPlot
 
-**Scenario:** PolarPlot is laggy with many strokes
+**Scenario:** CartesianPlot is laggy with many strokes
 
 **Steps:**
 
@@ -358,7 +358,7 @@ interface PolarPlotProps {
    // Identify expensive operations
    ```
 
-3. **Optimize in src/components/PolarPlot.tsx**
+3. **Optimize in src/components/CartesianPlot.tsx**
    ```typescript
    // Reduce sample count
    // Optimize drawing operations

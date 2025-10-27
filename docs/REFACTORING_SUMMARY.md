@@ -277,7 +277,7 @@ npm run preview  # Test production build
 ## 🔜 Next Steps
 
 ### Core Features (High Priority)
-1. Implement canvas-based plots (PolarPlot, StabilityPlot)
+1. Implement canvas-based plots (StabilityPlot)
 2. Complete settings panel UI
 3. Add demo mode to React app
 4. Test on actual devices

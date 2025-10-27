@@ -301,3 +301,77 @@
   }
 }
 
+/* Raw Data Tab Styles */
+.raw-tab-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 20px;
+  gap: 20px;
+}
+
+.coordinate-toggle {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-weight: 500;
+  color: #333;
+}
+
+.toggle-label input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
+
+.toggle-text {
+  font-size: 16px;
+  font-weight: 600;
+  color: #0066cc;
+}
+
+.coordinate-info {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #6c757d;
+  min-width: 200px;
+}
+
+.coordinate-info div {
+  margin: 2px 0;
+}
+
+.coordinate-info div:first-child {
+  font-weight: 600;
+  color: #495057;
+  margin-bottom: 6px;
+}
+
+/* Responsive adjustments for coordinate toggle */
+@media (max-width: 768px) {
+  .raw-tab-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .coordinate-toggle {
+    align-items: stretch;
+  }
+  
+  .coordinate-info {
+    min-width: auto;
+  }
+}
+

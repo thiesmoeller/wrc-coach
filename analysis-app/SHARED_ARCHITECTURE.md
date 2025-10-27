@@ -24,10 +24,8 @@ wrc-coach/
 │   │       └── BoatTransform.ts    ← Used by both apps
 │   │
 │   └── components/             🔗 SHARED UI COMPONENTS
-│       ├── PolarPlot.tsx       ← Used by both apps
-│       ├── PolarPlot.css       ← Shared CSS (imported by both)
-│       ├── StabilityPlot.tsx   ← Used by both apps
-│       ├── StabilityPlot.css   ← Shared CSS (imported by both)
+│       ├── StabilityPlot.tsx       ← Used by both apps
+│       ├── StabilityPlot.css       ← Shared CSS (imported by both)
 │       ├── MetricsBar.tsx      ← Used by both apps
 │       └── MetricsBar.css      ← Shared CSS (imported by both)
 │
@@ -56,8 +54,8 @@ import { BandPassFilter } from '@wrc-coach/lib/filters/BandPassFilter';
 import { StrokeDetector } from '@wrc-coach/lib/stroke-detection/StrokeDetector';
 
 // Components (shared)
-import { PolarPlot } from '@wrc-coach/components/PolarPlot';
-import '@wrc-coach/components/PolarPlot.css';  // CSS also shared!
+import { StabilityPlot } from '@wrc-coach/components/StabilityPlot';
+import '@wrc-coach/components/StabilityPlot.css';  // CSS also shared!
 ```
 
 **Everything is imported from the shared location - zero duplication!**

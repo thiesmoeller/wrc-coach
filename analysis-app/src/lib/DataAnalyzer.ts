@@ -1,6 +1,6 @@
 import type { SessionData, AnalysisResults } from '../types';
 import { BandPassFilter } from '@wrc-coach/lib/filters/BandPassFilter';
-import { AdaptiveStrokeDetector } from './AdaptiveStrokeDetector';
+import { AdaptiveStrokeDetector } from '@wrc-coach/lib/stroke-detection/AdaptiveStrokeDetector';
 import { PCAAxisDetector } from './PCAAxisDetector';
 
 /**
@@ -27,6 +27,11 @@ export class DataAnalyzer {
         timeVector: [],
         rawAcceleration: [],
         filteredAcceleration: [],
+        boatAccelerations: {
+          surge: [],
+          sway: [],
+          heave: [],
+        },
         catches: [],
         finishes: [],
         strokes: [],
@@ -47,6 +52,11 @@ export class DataAnalyzer {
         timeVector: [],
         rawAcceleration: [],
         filteredAcceleration: [],
+        boatAccelerations: {
+          surge: [],
+          sway: [],
+          heave: [],
+        },
         catches: [],
         finishes: [],
         strokes: [],
@@ -86,6 +96,8 @@ export class DataAnalyzer {
 
     // Step 3: Transform all samples to boat frame using detected axes
     const surgeAccelerations: number[] = [];
+    const swayAccelerations: number[] = [];
+    const heaveAccelerations: number[] = [];
     const rawSurgeAccelerations: number[] = [];
     
     // Debug: Sample middle of recording
@@ -109,8 +121,10 @@ export class DataAnalyzer {
         });
       }
       
-      // Store surge (fore-aft) acceleration
+      // Store all boat coordinate accelerations
       surgeAccelerations.push(boatAccel.surge);
+      swayAccelerations.push(boatAccel.sway);
+      heaveAccelerations.push(boatAccel.heave);
       rawSurgeAccelerations.push(boatAccel.surge);
     }
 
@@ -169,6 +183,11 @@ export class DataAnalyzer {
       timeVector,
       rawAcceleration: rawSurgeAccelerations,
       filteredAcceleration,
+      boatAccelerations: {
+        surge: surgeAccelerations,
+        sway: swayAccelerations,
+        heave: heaveAccelerations,
+      },
       catches,
       finishes,
       strokes,

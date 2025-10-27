@@ -1,20 +1,26 @@
 /**
  * Adaptive Stroke Detector
- * Uses peak detection and automatic threshold adjustment
- * More robust than fixed thresholds
+ * 
+ * Simplified approach focusing on catch detection and stroke cycle timing:
+ * 1. Find positive peaks in acceleration (drive phase peaks)
+ * 2. Find zero crossings before peaks (catch points)
+ * 3. Define stroke cycles from catch to catch
+ * 
+ * Finish detection is deferred to a later stage to avoid issues with
+ * external negative accelerations (water resistance, wind, etc.)
  */
 
 export interface StrokeSegment {
   catchTime: number;
   catchIdx: number;
-  finishTime: number;
-  finishIdx: number;
-  driveTime: number;
-  recoveryTime: number;
+  finishTime: number; // Placeholder until finish detection is implemented
+  finishIdx: number; // Placeholder until finish detection is implemented
+  driveTime: number; // Estimated until finish detection is implemented
+  recoveryTime: number; // Estimated until finish detection is implemented
   strokeRate: number;
-  drivePercent: number;
+  drivePercent: number; // Estimated until finish detection is implemented
   peakAcceleration: number;
-  minAcceleration: number;
+  minAcceleration: number; // Placeholder until finish detection is implemented
 }
 
 export class AdaptiveStrokeDetector {
@@ -27,7 +33,7 @@ export class AdaptiveStrokeDetector {
    * @returns Array of detected strokes
    */
   static detectStrokes(
-    timeVector: number[],
+    _timeVector: number[],
     filteredAcceleration: number[],
     timestamps: number[]
   ): StrokeSegment[] {
@@ -36,7 +42,7 @@ export class AdaptiveStrokeDetector {
     }
 
     // Calculate signal statistics for adaptive threshold
-    // Only use POSITIVE values for statistics (catches, not finishes)
+    // Only use POSITIVE values for statistics (drive accelerations)
     const positiveValues = filteredAcceleration.filter(v => v > 0);
     const mean = filteredAcceleration.reduce((sum, v) => sum + v, 0) / filteredAcceleration.length;
     
@@ -49,18 +55,19 @@ export class AdaptiveStrokeDetector {
     const variance = positiveValues.reduce((sum, v) => sum + Math.pow(v - positiveMean, 2), 0) / positiveValues.length;
     const std = Math.sqrt(variance);
     
-    // Auto-detect catch threshold: Use 90th percentile of positive values
-    // Only detect the strongest 10% of accelerations as potential catches
+    // Auto-detect peak threshold: Use 75th percentile of positive values
+    // Detect the strongest 25% of accelerations as potential drive peaks
     const sortedPositive = [...positiveValues].sort((a, b) => a - b);
     const p50 = sortedPositive[Math.floor(sortedPositive.length * 0.50)];
     const p75 = sortedPositive[Math.floor(sortedPositive.length * 0.75)];
     const p90 = sortedPositive[Math.floor(sortedPositive.length * 0.90)];
     const p95 = sortedPositive[Math.floor(sortedPositive.length * 0.95)];
-    const catchThreshold = p90; // Use 90th percentile - only top 10% accelerations
+    const peakThreshold = p75; // Use 75th percentile - top 25% accelerations
     
     // Expected stroke rate: 18-35 SPM = 1.7-3.3 seconds per stroke
-    // Min distance between catches: 1.7 seconds at 50Hz = 85 samples
-    const minPeakDistance = Math.floor(1.7 * 50); // 85 samples minimum
+    // Min distance between peaks: 1.7 seconds at 50Hz = 85 samples
+    const sampleRate = 50; // Assuming 50 Hz
+    const minPeakDistance = Math.floor(1.7 * sampleRate); // 85 samples minimum
     
     console.log('Adaptive thresholds:', {
       mean: mean.toFixed(3),
@@ -70,90 +77,97 @@ export class AdaptiveStrokeDetector {
       p75: p75.toFixed(3),
       p90: p90.toFixed(3),
       p95: p95.toFixed(3),
-      catchThreshold: catchThreshold.toFixed(3),
-      minPeakDistance: `${minPeakDistance} samples (${(minPeakDistance / 50).toFixed(1)}s)`,
+      peakThreshold: peakThreshold.toFixed(3),
+      minPeakDistance: `${minPeakDistance} samples (${(minPeakDistance / sampleRate).toFixed(1)}s)`,
       signalRange: `${Math.min(...filteredAcceleration).toFixed(2)} to ${Math.max(...filteredAcceleration).toFixed(2)}`,
       positiveCount: positiveValues.length,
-      expectedPeaks: `~${Math.floor(positiveValues.length * 0.10 / minPeakDistance)} (top 10% / min distance)`
+      expectedPeaks: `~${Math.floor(positiveValues.length * 0.25 / minPeakDistance)} (top 25% / min distance)`
     });
 
-    // Find catch peaks (local maxima above threshold)
-    const catches = this.findPeaks(filteredAcceleration, catchThreshold, minPeakDistance);
+    // Step 1: Find positive peaks in acceleration (peak drive acceleration)
+    const peaks = this.findPeaks(filteredAcceleration, peakThreshold, minPeakDistance);
     
-    if (catches.length < 2) {
-      console.log('Too few catches detected:', catches.length);
+    if (peaks.length < 2) {
+      console.log('Too few peaks detected:', peaks.length);
       return [];
     }
 
-    console.log(`Detected ${catches.length} catch peaks`);
+    console.log(`Detected ${peaks.length} acceleration peaks`);
 
-    // For each catch-to-catch segment, find the finish (minimum acceleration)
+    // Step 2: For each peak, go backwards to find the zero crossing (catch)
+    const catches: number[] = [];
+    const maxLookback = Math.floor(0.6 * sampleRate); // Look back max 600ms
+    
+    for (const peakIdx of peaks) {
+      // Find the zero crossing before the peak
+      let catchIdx = peakIdx;
+      
+      // Go backwards from peak until we find where acceleration crosses zero
+      for (let i = peakIdx - 1; i >= Math.max(0, peakIdx - maxLookback); i--) {
+        if (filteredAcceleration[i] <= 0 && filteredAcceleration[i + 1] > 0) {
+          // Found zero crossing from negative to positive
+          catchIdx = i + 1; // Use the first positive sample
+          break;
+        }
+      }
+      
+      // Avoid duplicate catches
+      if (catches.length === 0 || catchIdx - catches[catches.length - 1] >= minPeakDistance / 2) {
+        catches.push(catchIdx);
+      }
+    }
+    
+    console.log(`Found ${catches.length} catch points from ${peaks.length} peaks`);
+
+    // Build strokes from catch-to-catch pairs (simplified approach)
+    // Focus on stroke cycle timing, defer finish detection to later stage
     const strokes: StrokeSegment[] = [];
     const rejectionReasons: { [key: string]: number } = {};
     
     for (let i = 0; i < catches.length - 1; i++) {
       const catchIdx = catches[i];
       const nextCatchIdx = catches[i + 1];
+      const peakIdx = peaks[i];
       
-      // Find finish as minimum acceleration in this segment
-      let finishIdx = catchIdx;
-      let minAccel = filteredAcceleration[catchIdx];
+      // Calculate stroke cycle timing (catch to catch)
+      const strokeCycleTime = timestamps[nextCatchIdx] - timestamps[catchIdx];
       
-      for (let j = catchIdx; j < nextCatchIdx; j++) {
-        if (filteredAcceleration[j] < minAccel) {
-          minAccel = filteredAcceleration[j];
-          finishIdx = j;
-        }
-      }
-      
-      // Use actual timestamps for accurate timing
-      const driveTime = timestamps[finishIdx] - timestamps[catchIdx];
-      const recoveryTime = timestamps[nextCatchIdx] - timestamps[finishIdx];
-      const totalTime = driveTime + recoveryTime;
-      
-      // Relaxed sanity checks for varying speeds
-      // Drive: 300-1200ms (was 200-1500ms)
-      // Recovery: 500-3500ms (was 400-3000ms)
-      // Total stroke: 1000-4500ms (15-60 SPM range)
+      // Basic sanity checks for stroke cycle timing
+      // Typical stroke rates: 15-40 SPM = 1500-4000ms per stroke
       let rejected = false;
-      if (driveTime < 300) {
-        rejectionReasons['drive_too_short'] = (rejectionReasons['drive_too_short'] || 0) + 1;
+      if (strokeCycleTime < 1500) {
+        rejectionReasons['cycle_too_short'] = (rejectionReasons['cycle_too_short'] || 0) + 1;
         rejected = true;
-      } else if (driveTime > 1200) {
-        rejectionReasons['drive_too_long'] = (rejectionReasons['drive_too_long'] || 0) + 1;
-        rejected = true;
-      } else if (recoveryTime < 500) {
-        rejectionReasons['recovery_too_short'] = (rejectionReasons['recovery_too_short'] || 0) + 1;
-        rejected = true;
-      } else if (recoveryTime > 3500) {
-        rejectionReasons['recovery_too_long'] = (rejectionReasons['recovery_too_long'] || 0) + 1;
-        rejected = true;
-      } else if (totalTime < 1000 || totalTime > 4500) {
-        rejectionReasons['total_time_invalid'] = (rejectionReasons['total_time_invalid'] || 0) + 1;
+      } else if (strokeCycleTime > 4000) {
+        rejectionReasons['cycle_too_long'] = (rejectionReasons['cycle_too_long'] || 0) + 1;
         rejected = true;
       }
       
       // Debug first few rejections
       if (rejected && Object.values(rejectionReasons).reduce((a, b) => a + b, 0) <= 3) {
-        console.log(`Stroke ${i} rejected: drive=${driveTime.toFixed(0)}ms, recovery=${recoveryTime.toFixed(0)}ms, total=${totalTime.toFixed(0)}ms`);
+        console.log(`Stroke ${i} rejected: cycle=${strokeCycleTime.toFixed(0)}ms`);
       }
       
       if (rejected) continue;
       
-      const strokeRate = Math.round(60000 / totalTime);
-      const drivePercent = Math.round((driveTime / totalTime) * 100);
+      const strokeRate = Math.round(60000 / strokeCycleTime);
+      
+      // For now, use placeholder values for drive/recovery timing
+      // These will be calculated properly in a later stage
+      const estimatedDriveTime = strokeCycleTime * 0.3; // Assume 30% drive
+      const estimatedRecoveryTime = strokeCycleTime * 0.7; // Assume 70% recovery
       
       strokes.push({
         catchTime: timestamps[catchIdx],
         catchIdx,
-        finishTime: timestamps[finishIdx],
-        finishIdx,
-        driveTime,
-        recoveryTime,
+        finishTime: timestamps[nextCatchIdx], // Placeholder: next catch
+        finishIdx: nextCatchIdx, // Placeholder: next catch
+        driveTime: estimatedDriveTime,
+        recoveryTime: estimatedRecoveryTime,
         strokeRate,
-        drivePercent,
-        peakAcceleration: filteredAcceleration[catchIdx],
-        minAcceleration: filteredAcceleration[finishIdx],
+        drivePercent: 30, // Placeholder
+        peakAcceleration: filteredAcceleration[peakIdx],
+        minAcceleration: 0, // Placeholder - will be calculated later
       });
     }
     
@@ -192,7 +206,8 @@ export class AdaptiveStrokeDetector {
       
       if (!isLocalMax) continue;
       
-      // Check prominence: peak must be at least 0.3 m/s² above surrounding minimum
+      // Check prominence: peak must be at least 0.2 m/s² above surrounding minimum
+      // Reduced from 0.3 to be more sensitive
       let minLeft = signal[i];
       let minRight = signal[i];
       for (let j = Math.max(0, i - prominenceWindow); j < i; j++) {
@@ -203,7 +218,7 @@ export class AdaptiveStrokeDetector {
       }
       const prominence = signal[i] - Math.max(minLeft, minRight);
       
-      if (prominence < 0.3) continue; // Require at least 0.3 m/s² prominence
+      if (prominence < 0.2) continue; // Require at least 0.2 m/s² prominence
       
       // Check minimum distance from last peak
       if (peaks.length === 0 || i - peaks[peaks.length - 1] >= minDistance) {
@@ -220,4 +235,3 @@ export class AdaptiveStrokeDetector {
     return peaks;
   }
 }
-

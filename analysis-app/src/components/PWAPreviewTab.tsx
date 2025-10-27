@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import type { SessionData, AnalysisResults } from '../types';
-import { PolarPlot } from '@wrc-coach/components/PolarPlot';
+import { CartesianPlot } from '@wrc-coach/components/CartesianPlot';
 import { StabilityPlot } from '@wrc-coach/components/StabilityPlot';
 import { MetricsBar } from '@wrc-coach/components/MetricsBar';
 import { ComplementaryFilter } from '@wrc-coach/lib/filters/ComplementaryFilter';
 // Import shared CSS from PWA components
-import '@wrc-coach/components/PolarPlot.css';
+import '@wrc-coach/components/CartesianPlot.css';
 import '@wrc-coach/components/StabilityPlot.css';
 import '@wrc-coach/components/MetricsBar.css';
 import './PWAPreviewTab.css';
@@ -162,14 +162,16 @@ export const PWAPreviewTab: React.FC<Props> = ({ sessionData, analysisResults })
           />
         </div>
 
-        {/* Polar Plot - Shared Component */}
+        {/* Cartesian Plot - Shared Component */}
         <div className="preview-section">
           <h3>Acceleration Pattern (Shared Component)</h3>
           <div className="plot-wrapper mobile-size">
-            <PolarPlot
+            <CartesianPlot
               samples={samplesWithOrientation}
               historyStrokes={3}
               trailOpacity={50}
+              // Ensure absolute ms catch times for compatibility with shared component
+              catchTimes={analysisResults.catches}
             />
           </div>
         </div>
@@ -180,6 +182,7 @@ export const PWAPreviewTab: React.FC<Props> = ({ sessionData, analysisResults })
           <div className="plot-wrapper mobile-size">
             <StabilityPlot
               samples={samplesWithOrientation}
+              catchTimes={analysisResults.catches}
             />
           </div>
         </div>
@@ -199,7 +202,7 @@ export const PWAPreviewTab: React.FC<Props> = ({ sessionData, analysisResults })
             <strong>Optimize Here:</strong> Any improvements to these components benefit both apps
           </li>
           <li>
-            <strong>Code Location:</strong> <code>src/components/PolarPlot.tsx</code>, <code>StabilityPlot.tsx</code>, <code>MetricsBar.tsx</code>
+            <strong>Code Location:</strong> <code>src/components/CartesianPlot.tsx</code>, <code>StabilityPlot.tsx</code>, <code>MetricsBar.tsx</code>
           </li>
         </ul>
       </div>

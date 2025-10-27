@@ -32,10 +32,8 @@ wrc-coach/
 │   │       └── BinaryDataWriter.ts
 │   │
 │   └── components/             🔗 UI Components + CSS
-│       ├── PolarPlot.tsx
-│       ├── PolarPlot.css          ← Imported by both apps
 │       ├── StabilityPlot.tsx
-│       ├── StabilityPlot.css      ← Imported by both apps
+│       ├── StabilityPlot.css          ← Imported by both apps
 │       ├── MetricsBar.tsx
 │       └── MetricsBar.css         ← Imported by both apps
 │
@@ -72,12 +70,10 @@ import { transformToBoatFrame } from '@wrc-coach/lib/transforms/BoatTransform';
 // ========================================
 // SHARED COMPONENTS (from PWA)
 // ========================================
-import { PolarPlot } from '@wrc-coach/components/PolarPlot';
 import { StabilityPlot } from '@wrc-coach/components/StabilityPlot';
 import { MetricsBar } from '@wrc-coach/components/MetricsBar';
 
 // Import shared CSS
-import '@wrc-coach/components/PolarPlot.css';
 import '@wrc-coach/components/StabilityPlot.css';
 import '@wrc-coach/components/MetricsBar.css';
 
@@ -95,8 +91,8 @@ import { GPSMapPlot } from './components/GPSMapPlot';
 ```typescript
 // Normal local imports
 import { BandPassFilter } from './lib/filters/BandPassFilter';
-import { PolarPlot } from './components/PolarPlot';
-import './components/PolarPlot.css';
+import { StabilityPlot } from './components/StabilityPlot';
+import './components/StabilityPlot.css';
 ```
 
 ## Configuration
@@ -168,7 +164,7 @@ export default defineConfig({
    - No manual syncing needed
    - Guaranteed consistency
 
-### Example: Optimizing PolarPlot
+### Example: Optimizing StabilityPlot
 
 1. **Notice Performance Issue**
    - PWA: Laggy with many strokes
@@ -183,14 +179,14 @@ export default defineConfig({
 
 3. **Optimize Component** (once)
    ```typescript
-   // Edit: src/components/PolarPlot.tsx
+   // Edit: src/components/StabilityPlot.tsx
    // Reduce sample count
    // Optimize canvas operations
    ```
 
 4. **CSS Improvements** (optional)
    ```css
-   /* Edit: src/components/PolarPlot.css */
+   /* Edit: src/components/StabilityPlot.css */
    /* Improve visual appearance */
    ```
 
@@ -256,12 +252,12 @@ export default defineConfig({
 
 ### Scenario 3: UI Improvements
 
-**Problem:** PolarPlot hard to read
+**Problem:** StabilityPlot hard to read
 
 **Steps:**
 1. Analysis app → PWA Preview tab
-2. Edit `src/components/PolarPlot.tsx` → Better layout
-3. Edit `src/components/PolarPlot.css` → Better colors
+2. Edit `src/components/StabilityPlot.tsx` → Better layout
+3. Edit `src/components/StabilityPlot.css` → Better colors
 4. Preview → Looks good
 5. Test PWA → Looks identical
 
@@ -280,8 +276,6 @@ src/
 │   └── data-storage/
 │
 └── components/                 ← Reusable components
-    ├── PolarPlot.tsx
-    ├── PolarPlot.css
     ├── StabilityPlot.tsx
     ├── StabilityPlot.css
     ├── MetricsBar.tsx
@@ -435,7 +429,7 @@ git commit -m "Improve stroke detection algorithm"
 **Solution:**
 ```typescript
 // Explicitly import CSS
-import '@wrc-coach/components/PolarPlot.css';
+import '@wrc-coach/components/StabilityPlot.css';
 ```
 
 ### Type Errors

@@ -81,6 +81,11 @@ export interface AnalysisResults {
   timeVector: number[];         // time in seconds
   rawAcceleration: number[];    // raw ay
   filteredAcceleration: number[]; // filtered ay
+  boatAccelerations: {
+    surge: number[];            // fore-aft acceleration (bow-stern)
+    sway: number[];             // lateral acceleration (port-starboard)
+    heave: number[];            // vertical acceleration (up-down)
+  };
   catches: number[];            // catch timestamps
   finishes: number[];           // finish timestamps
   strokes: StrokeInfo[];        // stroke info

@@ -285,7 +285,7 @@ Perfect for learning to read the plot:
 
 ---
 
-## Comparison: Rectangular vs Polar Plot
+## Comparison: Rectangular vs Cartesian Plot
 
 ### Rectangular (Current)
 ✅ Easier to read  

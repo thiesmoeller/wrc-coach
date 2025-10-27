@@ -38,7 +38,7 @@ Complete documentation for the WRC Coach Progressive Web App (PWA).
 - **[Plots Summary](PLOTS_SUMMARY.md)** - Overview of visualization features
 - **[Plot Implementation Summary](PLOT_IMPLEMENTATION_SUMMARY.md)** - Detailed implementation notes
 - **[Rectangular Plot Guide](RECTANGULAR_PLOT_GUIDE.md)** - Rectangular plot usage
-- **[Polar Plot Implementation](IDEAL_PATTERN_SIMPLIFICATION.md)** - Polar plot design
+- **[Cartesian Plot Implementation](IDEAL_PATTERN_SIMPLIFICATION.md)** - Cartesian plot design
 
 ### Algorithms & Processing
 - **[Filtering Improvements](FILTERING_IMPROVEMENTS.md)** - Signal filtering enhancements

@@ -24,6 +24,7 @@ function App() {
   });
   const [activeTab, setActiveTab] = useState<'overview' | 'strokes' | 'gps' | 'raw' | 'pwa-preview'>('overview');
   const [fileName, setFileName] = useState<string>('');
+  const [showBoatCoordinates, setShowBoatCoordinates] = useState(false);
 
   // Handle file upload
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -262,13 +263,64 @@ function App() {
 
               {activeTab === 'raw' && (
                 <div className="raw-tab">
-                  <h2>Raw Sensor Data</h2>
+                  <div className="raw-tab-header">
+                    <h2>Raw Sensor Data</h2>
+                    <div className="coordinate-toggle">
+                      <label className="toggle-label">
+                        <input
+                          type="checkbox"
+                          checked={showBoatCoordinates}
+                          onChange={(e) => setShowBoatCoordinates(e.target.checked)}
+                        />
+                        <span className="toggle-text">
+                          {showBoatCoordinates ? 'Boat Coordinates' : 'Raw IMU Data'}
+                        </span>
+                      </label>
+                      <div className="coordinate-info">
+                        {showBoatCoordinates ? (
+                          <div>
+                            <div>+X = Starboard (right)</div>
+                            <div>-X = Port (left)</div>
+                            <div>+Y = Bow (forward)</div>
+                            <div>-Y = Stern (backward)</div>
+                            <div>+Z = Up</div>
+                            <div>-Z = Down</div>
+                          </div>
+                        ) : (
+                          <div>
+                            <div>X = Lateral (phone frame)</div>
+                            <div>Y = Fore-aft (phone frame)</div>
+                            <div>Z = Vertical (phone frame)</div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                   
                   <div className="plot-section">
                     <TimeSeriesPlot
-                      title="Accelerometer Data"
+                      title={showBoatCoordinates ? "Boat Coordinate System" : "Raw IMU Accelerometer Data"}
                       timeVector={analysisResults.timeVector}
-                      series={[
+                      series={showBoatCoordinates ? [
+                        {
+                          name: 'Surge (bow-stern)',
+                          data: analysisResults.boatAccelerations.surge,
+                          color: '#4ecdc4',
+                          width: 1.5,
+                        },
+                        {
+                          name: 'Sway (port-starboard)',
+                          data: analysisResults.boatAccelerations.sway,
+                          color: '#ff6b6b',
+                          width: 1.5,
+                        },
+                        {
+                          name: 'Heave (up-down)',
+                          data: analysisResults.boatAccelerations.heave,
+                          color: '#45b7d1',
+                          width: 1.5,
+                        },
+                      ] : [
                         {
                           name: 'ax (lateral)',
                           data: sessionData.imuSamples.map(s => s.ax),

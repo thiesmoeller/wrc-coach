@@ -6,10 +6,10 @@ A modern Progressive Web App (PWA) for real-time rowing performance feedback at 
 
 ### 📊 Real-Time Visualizations
 
-1. **Polar Stroke Cycle Plot**
-   - 360° visualization of the complete stroke cycle
-   - Drive phase (0-144°) in blue
-   - Recovery phase (144-360°) in purple
+1. **Cartesian Stroke Cycle Plot**
+   - Cartesian visualization of the complete stroke cycle
+   - Drive phase acceleration in blue
+   - Recovery phase deceleration in purple
    - Baseline-corrected acceleration to remove environmental drag
 
 2. **Boat Stability Monitor**
@@ -173,7 +173,7 @@ Where:
 
 ### Stroke Angle Mapping (Dynamic)
 
-The polar plot angle distribution is **dynamically calculated** based on the measured drive-to-recovery ratio:
+The cartesian plot angle distribution is **dynamically calculated** based on the measured drive-to-recovery ratio:
 
 - **0°**: Catch (blade enters water)
 - **0° to X°**: Drive phase (power application) - where X = 360° × drive%

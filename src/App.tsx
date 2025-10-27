@@ -4,7 +4,7 @@ import { MetricsBar } from './components/MetricsBar';
 import { ControlPanel } from './components/ControlPanel';
 import { SettingsPanel } from './components/SettingsPanel';
 import { SessionPanel } from './components/SessionPanel';
-import { PolarPlot } from './components/PolarPlot';
+import { CartesianPlot } from './components/CartesianPlot';
 import { StabilityPlot } from './components/StabilityPlot';
 import { UpdateNotification } from './components/UpdateNotification';
 import { useSettings, useDeviceMotion, useGeolocation, useWakeLock, useCalibration, useSessionStorage, type MotionData, type GPSData } from './hooks';
@@ -14,7 +14,7 @@ import {
   BandPassFilter,
   LowPassFilter,
 } from './lib/filters';
-import { StrokeDetector, BaselineCorrector } from './lib/stroke-detection';
+import { RealTimeAdaptiveStrokeDetector, BaselineCorrector } from './lib/stroke-detection';
 import { transformToBoatFrame } from './lib/transforms';
 import { convertToSplitTime } from './utils/conversions';
 import './App.css';
@@ -45,8 +45,9 @@ function App() {
   const { sessions, isLoading, saveSession, deleteSession, clearAllSessions, getSessionBinary } = useSessionStorage();
   const [isRunning, setIsRunning] = useState(false);
   const [samples, setSamples] = useState<Sample[]>([]);
+  const [catchTimes, setCatchTimes] = useState<number[]>([]);
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
-  const [latestMotionData, setLatestMotionData] = useState<MotionData | null>(null);
+  const [, setLatestMotionData] = useState<MotionData | null>(null);
   
   // Metrics
   const [strokeRate, setStrokeRate] = useState(0);
@@ -82,13 +83,11 @@ function App() {
   const kalmanFilterRef = useRef(new KalmanFilterGPS());
   const bandPassFilterRef = useRef(new BandPassFilter(0.3, 1.2, 50));
   const lowPassFilterRef = useRef(new LowPassFilter(0.85));
-  const strokeDetectorRef = useRef(new StrokeDetector({
-    catchThreshold: settings.catchThreshold,
-    finishThreshold: settings.finishThreshold,
-  }));
+  const strokeDetectorRef = useRef(new RealTimeAdaptiveStrokeDetector());
   const baselineCorrectorRef = useRef(new BaselineCorrector(3000));
   
   const lastIMUTimeRef = useRef<number | null>(null);
+  const prevInDriveRef = useRef<boolean>(false);
 
   // Enable wake lock
   useWakeLock();
@@ -110,13 +109,10 @@ function App() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [isRunning]);
 
-  // Update detector thresholds when settings change
+  // Reset detector when settings change (adaptive detector doesn't use manual thresholds)
   useEffect(() => {
-    strokeDetectorRef.current.setThresholds({
-      catchThreshold: settings.catchThreshold,
-      finishThreshold: settings.finishThreshold,
-    });
-  }, [settings.catchThreshold, settings.finishThreshold]);
+    strokeDetectorRef.current.reset();
+  }, [settings.phoneOrientation]);
 
   // Handle IMU data
   const handleMotion = useCallback((data: MotionData) => {
@@ -166,6 +162,14 @@ function App() {
       if (dp > 0) {
         drivePercentsRef.current.push(dp);
       }
+
+      // Ensure catch time is recorded
+      if (completedStroke.catchTime) {
+        setCatchTimes((prev) => {
+          const last = prev[prev.length - 1] ?? -Infinity;
+          return completedStroke.catchTime > last + 10 ? [...prev, completedStroke.catchTime] : prev;
+        });
+      }
     }
 
     // Update baseline
@@ -174,6 +178,13 @@ function App() {
       surgeSmooth,
       strokeDetectorRef.current.isInDrive()
     );
+
+    // Track catch times in real time (transition recovery->drive)
+    const inDriveNow = strokeDetectorRef.current.isInDrive();
+    if (!prevInDriveRef.current && inDriveNow) {
+      setCatchTimes((prev) => [...prev, data.t]);
+    }
+    prevInDriveRef.current = inDriveNow;
 
     // Store sample
     const sample: Sample = {
@@ -220,6 +231,7 @@ function App() {
     setIsRunning(true);
     setSessionStartTime(Date.now());
     setSamples([]);
+    setCatchTimes([]);
     
     // Mark session as active (prevents app updates during recording)
     sessionStorage.setItem('wrc_recording_active', 'true');
@@ -301,8 +313,6 @@ function App() {
           strokeCount: strokeRatesRef.current.length,
           phoneOrientation: settings.phoneOrientation,
           demoMode: settings.demoMode,
-          catchThreshold: settings.catchThreshold,
-          finishThreshold: settings.finishThreshold,
         });
         console.log('Session saved successfully!');
       } catch (error) {
@@ -344,16 +354,17 @@ function App() {
 
         <div className="chart-container">
           <h2 className="chart-title">Stroke Cycle Analysis</h2>
-          <PolarPlot 
+          <CartesianPlot 
             samples={samples}
             historyStrokes={settings.historyStrokes}
             trailOpacity={settings.trailOpacity}
+            catchTimes={catchTimes}
           />
         </div>
 
         <div className="chart-container">
           <h2 className="chart-title">Boat Stability (Roll) - Stroke Cycle</h2>
-          <StabilityPlot samples={samples} />
+          <StabilityPlot samples={samples} catchTimes={catchTimes} />
         </div>
       </main>
 

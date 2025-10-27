@@ -11,5 +11,15 @@ export {
   type StrokeSample,
 } from './StrokeDetector';
 
+export {
+  AdaptiveStrokeDetector,
+  type StrokeSegment,
+} from './AdaptiveStrokeDetector';
+
+export {
+  RealTimeAdaptiveStrokeDetector,
+  type RealTimeStrokeInfo,
+} from './RealTimeAdaptiveStrokeDetector';
+
 export { BaselineCorrector } from './BaselineCorrector';
 

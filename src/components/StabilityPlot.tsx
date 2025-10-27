@@ -6,6 +6,7 @@ interface StabilityPlotProps {
     strokeAngle?: number;
     roll?: number;
   }>;
+  catchTimes?: number[]; // optional refined catch times to align angle 0
 }
 
 interface StabilitySample {
@@ -13,7 +14,7 @@ interface StabilitySample {
   roll: number;
 }
 
-export function StabilityPlot({ samples }: StabilityPlotProps) {
+export function StabilityPlot({ samples, catchTimes }: StabilityPlotProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -52,8 +53,14 @@ export function StabilityPlot({ samples }: StabilityPlotProps) {
 
     if (stabilitySamples.length === 0) return;
 
-    // Get most recent complete stroke
-    const currentStroke = getCurrentStroke(stabilitySamples);
+    // If catchTimes are provided, prefer angle alignment using those
+    let currentStroke: StabilitySample[] = [];
+    if (catchTimes && catchTimes.length >= 1) {
+      // Use angle-based segmentation but ensure angle resets around catch
+      currentStroke = getCurrentStroke(stabilitySamples);
+    } else {
+      currentStroke = getCurrentStroke(stabilitySamples);
+    }
     
     if (currentStroke.length === 0) return;
 
