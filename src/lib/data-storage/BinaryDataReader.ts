@@ -27,8 +27,6 @@ export class BinaryDataReader {
   private readonly MAGIC_V3 = 'WRC_COACH_V3';
   private readonly HEADER_SIZE_V1 = 64;
   private readonly HEADER_SIZE_V2 = 128;
-  private readonly HEADER_SIZE_V3 = 128;
-  private readonly IMU_SAMPLE_SIZE_V1 = 32;
   private readonly IMU_SAMPLE_SIZE_V2 = 32;
   private readonly IMU_SAMPLE_SIZE_V3 = 44;
   private readonly GPS_SAMPLE_SIZE = 36;
