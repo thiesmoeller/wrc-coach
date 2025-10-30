@@ -7,7 +7,7 @@ import { SessionPanel } from './components/SessionPanel';
 import { PolarPlot } from './components/PolarPlot';
 import { StabilityPlot } from './components/StabilityPlot';
 import { UpdateNotification } from './components/UpdateNotification';
-import { useSettings, useDeviceMotion, useGeolocation, useWakeLock, useCalibration, useSessionStorage, type MotionData, type GPSData } from './hooks';
+import { useSettings, useDeviceMotion, useGeolocation, useWakeLock, useCalibration, useSessionStorage, useMagnetometer, type MotionData, type GPSData, type MagnetometerData } from './hooks';
 import {
   ComplementaryFilter,
   KalmanFilterGPS,
@@ -28,6 +28,9 @@ interface Sample {
   gx?: number;
   gy?: number;
   gz?: number;
+  mx?: number;
+  my?: number;
+  mz?: number;
   lat?: number;
   lon?: number;
   speed?: number;
@@ -188,6 +191,20 @@ function App() {
     setSamples((prev) => [...prev, sample]);
   }, [isRunning, settings.phoneOrientation, isCalibrated, applyCalibration]);
 
+  // Handle Magnetometer data (Android/Chrome only)
+  const handleMagnetometer = useCallback((data: MagnetometerData) => {
+    if (!isRunning) return;
+
+    const sample: Sample = {
+      t: data.t,
+      type: 'imu',
+      mx: data.mx,
+      my: data.my,
+      mz: data.mz,
+    };
+    setSamples((prev) => [...prev, sample]);
+  }, [isRunning]);
+
   // Handle GPS data
   const handlePosition = useCallback((data: GPSData) => {
     if (!isRunning) return;
@@ -213,6 +230,7 @@ function App() {
 
   // Setup sensors - always enabled for calibration
   useDeviceMotion({ onMotion: handleMotion, enabled: true, demoMode: settings.demoMode });
+  useMagnetometer({ onMagnetometer: handleMagnetometer, enabled: true, frequency: 60 });
   useGeolocation({ onPosition: handlePosition, enabled: isRunning, demoMode: settings.demoMode });
 
   // Start session

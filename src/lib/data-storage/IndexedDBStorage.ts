@@ -100,32 +100,66 @@ export class IndexedDBStorage {
     const id = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const timestamp = Date.now();
     
-    // Separate IMU and GPS samples
+    // Separate IMU and GPS samples, merging magnetometer data with IMU samples by timestamp
     const imuSamples: IMUSample[] = [];
     const gpsSamples: GPSSample[] = [];
     
+    // Create a map to merge IMU samples with magnetometer data by timestamp
+    const imuMap = new Map<number, IMUSample>();
+    
     for (const sample of sessionData.samples) {
       if (sample.type === 'imu') {
-        imuSamples.push({
-          t: sample.timestamp,
-          ax: sample.ax,
-          ay: sample.ay,
-          az: sample.az,
-          gx: sample.gx,
-          gy: sample.gy,
-          gz: sample.gz,
-        });
+        const timestamp = sample.timestamp || sample.t;
+        const existing = imuMap.get(timestamp);
+        
+        if (existing) {
+          // Merge magnetometer data into existing IMU sample
+          if (sample.mx !== undefined) existing.mx = sample.mx;
+          if (sample.my !== undefined) existing.my = sample.my;
+          if (sample.mz !== undefined) existing.mz = sample.mz;
+        } else if (sample.ax !== undefined || sample.ay !== undefined || sample.az !== undefined) {
+          // Create new IMU sample with accel/gyro data
+          imuMap.set(timestamp, {
+            t: timestamp,
+            ax: sample.ax ?? 0,
+            ay: sample.ay ?? 0,
+            az: sample.az ?? 0,
+            gx: sample.gx ?? 0,
+            gy: sample.gy ?? 0,
+            gz: sample.gz ?? 0,
+            mx: sample.mx,
+            my: sample.my,
+            mz: sample.mz,
+          });
+        } else if (sample.mx !== undefined || sample.my !== undefined || sample.mz !== undefined) {
+          // Create new IMU sample with only magnetometer data (might happen if accel/gyro arrives later)
+          imuMap.set(timestamp, {
+            t: timestamp,
+            ax: 0,
+            ay: 0,
+            az: 0,
+            gx: 0,
+            gy: 0,
+            gz: 0,
+            mx: sample.mx,
+            my: sample.my,
+            mz: sample.mz,
+          });
+        }
       } else if (sample.type === 'gps') {
         gpsSamples.push({
-          t: sample.timestamp,
-          lat: sample.lat,
-          lon: sample.lon,
-          speed: sample.speed,
-          heading: sample.heading,
-          accuracy: sample.accuracy,
+          t: sample.timestamp || sample.t,
+          lat: sample.lat ?? 0,
+          lon: sample.lon ?? 0,
+          speed: sample.speed ?? 0,
+          heading: sample.heading ?? 0,
+          accuracy: sample.accuracy ?? 0,
         });
       }
     }
+    
+    // Convert map to array and sort by timestamp
+    imuSamples.push(...Array.from(imuMap.values()).sort((a, b) => a.t - b.t));
     
     // Create binary data
     const metadata: SessionMetadata = {
@@ -240,6 +274,9 @@ export class IndexedDBStorage {
             gx: imu.gx,
             gy: imu.gy,
             gz: imu.gz,
+            mx: imu.mx,
+            my: imu.my,
+            mz: imu.mz,
           });
         }
         

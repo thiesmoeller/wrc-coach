@@ -9,6 +9,9 @@ export interface IMUSample {
   gx: number;   // Gyroscope X (deg/s)
   gy: number;   // Gyroscope Y (deg/s)
   gz: number;   // Gyroscope Z (deg/s)
+  mx?: number;  // Magnetometer X (µT) - V3 only
+  my?: number;  // Magnetometer Y (µT) - V3 only
+  mz?: number;  // Magnetometer Z (µT) - V3 only
 }
 
 /**
@@ -55,14 +58,17 @@ export interface SessionMetadata {
  * Creates compact .wrcdata files for efficient storage and reprocessing
  */
 export class BinaryDataWriter {
-  private readonly MAGIC = 'WRC_COACH_V2\0\0\0\0\0'; // 16 bytes (V2 includes calibration)
+  private readonly MAGIC_V3 = 'WRC_COACH_V3\0\0\0\0\0'; // 16 bytes (V3 includes magnetometer)
+  private readonly MAGIC_V2 = 'WRC_COACH_V2\0\0\0\0\0'; // 16 bytes (V2 includes calibration)
   private readonly HEADER_SIZE = 128; // Expanded for calibration data
-  private readonly IMU_SAMPLE_SIZE = 32;
+  private readonly IMU_SAMPLE_SIZE_V2 = 32; // V2: no magnetometer
+  private readonly IMU_SAMPLE_SIZE_V3 = 44; // V3: with magnetometer (32 + 12)
   private readonly GPS_SAMPLE_SIZE = 36;
   private readonly CALIBRATION_SIZE = 64;
 
   /**
    * Encode samples to binary format
+   * Uses V3 format if magnetometer data is present, otherwise V2
    */
   encode(imuSamples: IMUSample[], gpsSamples: GPSSample[], metadata: SessionMetadata = {}): ArrayBuffer {
     const imuCount = imuSamples.length;
@@ -71,12 +77,17 @@ export class BinaryDataWriter {
     const calibrationCount = calibrationSamples.length;
     const hasCalibration = metadata.calibration ? 1 : 0;
     
+    // Detect if magnetometer data is present
+    const hasMagnetometer = imuSamples.some(s => s.mx !== undefined || s.my !== undefined || s.mz !== undefined);
+    const version = hasMagnetometer ? 3 : 2;
+    const imuSampleSize = version === 3 ? this.IMU_SAMPLE_SIZE_V3 : this.IMU_SAMPLE_SIZE_V2;
+    
     // Calculate total size
     const totalSize = this.HEADER_SIZE + 
                      (hasCalibration ? this.CALIBRATION_SIZE : 0) +
-                     (imuCount * this.IMU_SAMPLE_SIZE) + 
+                     (imuCount * imuSampleSize) + 
                      (gpsCount * this.GPS_SAMPLE_SIZE) +
-                     (calibrationCount * this.IMU_SAMPLE_SIZE);
+                     (calibrationCount * imuSampleSize);
     
     const buffer = new ArrayBuffer(totalSize);
     const view = new DataView(buffer);
@@ -84,6 +95,7 @@ export class BinaryDataWriter {
     
     // Write header
     offset = this.writeHeader(view, offset, {
+      version,
       imuCount,
       gpsCount,
       calibrationCount,
@@ -102,7 +114,7 @@ export class BinaryDataWriter {
     
     // Write IMU samples
     for (const sample of imuSamples) {
-      offset = this.writeIMUSample(view, offset, sample);
+      offset = this.writeIMUSample(view, offset, sample, version);
     }
     
     // Write GPS samples
@@ -112,13 +124,14 @@ export class BinaryDataWriter {
     
     // Write calibration samples (raw data collected during calibration)
     for (const sample of calibrationSamples) {
-      offset = this.writeIMUSample(view, offset, sample);
+      offset = this.writeIMUSample(view, offset, sample, version);
     }
     
     return buffer;
   }
 
   private writeHeader(view: DataView, offset: number, header: {
+    version: number;
     imuCount: number;
     gpsCount: number;
     calibrationCount: number;
@@ -130,8 +143,9 @@ export class BinaryDataWriter {
     finishThreshold: number;
   }): number {
     // Magic string (16 bytes)
+    const magic = header.version === 3 ? this.MAGIC_V3 : this.MAGIC_V2;
     for (let i = 0; i < 16; i++) {
-      view.setUint8(offset++, this.MAGIC.charCodeAt(i));
+      view.setUint8(offset++, magic.charCodeAt(i));
     }
     
     view.setUint32(offset, header.imuCount, true); offset += 4;
@@ -166,7 +180,7 @@ export class BinaryDataWriter {
     return offset;
   }
 
-  private writeIMUSample(view: DataView, offset: number, sample: IMUSample): number {
+  private writeIMUSample(view: DataView, offset: number, sample: IMUSample, version: number): number {
     view.setFloat64(offset, sample.t, true); offset += 8;
     view.setFloat32(offset, sample.ax, true); offset += 4;
     view.setFloat32(offset, sample.ay, true); offset += 4;
@@ -174,6 +188,17 @@ export class BinaryDataWriter {
     view.setFloat32(offset, sample.gx, true); offset += 4;
     view.setFloat32(offset, sample.gy, true); offset += 4;
     view.setFloat32(offset, sample.gz, true); offset += 4;
+    
+    // V3: Add magnetometer data (or NaN if not present)
+    if (version === 3) {
+      const mx = (sample.mx !== undefined && Number.isFinite(sample.mx)) ? sample.mx : NaN;
+      const my = (sample.my !== undefined && Number.isFinite(sample.my)) ? sample.my : NaN;
+      const mz = (sample.mz !== undefined && Number.isFinite(sample.mz)) ? sample.mz : NaN;
+      view.setFloat32(offset, mx, true); offset += 4;
+      view.setFloat32(offset, my, true); offset += 4;
+      view.setFloat32(offset, mz, true); offset += 4;
+    }
+    
     return offset;
   }
 

@@ -19,14 +19,18 @@ export interface DecodedData {
 /**
  * Binary Reader for .wrcdata files
  * Decodes binary format back to usable data
- * Supports both V1 (legacy) and V2 (with calibration) formats
+ * Supports V1 (legacy), V2 (with calibration), and V3 (with magnetometer) formats
  */
 export class BinaryDataReader {
   private readonly MAGIC_V1 = 'WRC_COACH_V1';
   private readonly MAGIC_V2 = 'WRC_COACH_V2';
+  private readonly MAGIC_V3 = 'WRC_COACH_V3';
   private readonly HEADER_SIZE_V1 = 64;
   private readonly HEADER_SIZE_V2 = 128;
-  private readonly IMU_SAMPLE_SIZE = 32;
+  private readonly HEADER_SIZE_V3 = 128;
+  private readonly IMU_SAMPLE_SIZE_V1 = 32;
+  private readonly IMU_SAMPLE_SIZE_V2 = 32;
+  private readonly IMU_SAMPLE_SIZE_V3 = 44;
   private readonly GPS_SAMPLE_SIZE = 36;
   private readonly CALIBRATION_SIZE = 64;
 
@@ -44,20 +48,29 @@ export class BinaryDataReader {
       if (char !== 0) magic += String.fromCharCode(char);
     }
     
+    const isV3 = magic.startsWith(this.MAGIC_V3);
     const isV2 = magic.startsWith(this.MAGIC_V2);
     const isV1 = magic.startsWith(this.MAGIC_V1);
     
-    if (!isV1 && !isV2) {
-      throw new Error('Invalid file format');
+    if (!isV1 && !isV2 && !isV3) {
+      throw new Error(`Invalid file format: ${magic}`);
     }
     
-    // Read header based on version
-    const header = isV2 ? this.readHeaderV2(view, offset) : this.readHeaderV1(view, offset);
-    offset += isV2 ? this.HEADER_SIZE_V2 : this.HEADER_SIZE_V1;
+    const version = isV3 ? 3 : isV2 ? 2 : 1;
+    const headerSize = version === 1 ? this.HEADER_SIZE_V1 : this.HEADER_SIZE_V2;
+    const imuSampleSize = version === 3 ? this.IMU_SAMPLE_SIZE_V3 : this.IMU_SAMPLE_SIZE_V2;
     
-    // Read calibration data if V2
+    // Read header based on version
+    const header = version === 1 
+      ? this.readHeaderV1(view, offset) 
+      : version === 2 
+      ? this.readHeaderV2(view, offset)
+      : this.readHeaderV3(view, offset);
+    offset += headerSize;
+    
+    // Read calibration data if V2 or V3
     let calibration: CalibrationData | null = null;
-    if (isV2 && header.hasCalibration) {
+    if ((version === 2 || version === 3) && header.hasCalibration) {
       calibration = this.readCalibration(view, offset);
       offset += this.CALIBRATION_SIZE;
     }
@@ -65,9 +78,9 @@ export class BinaryDataReader {
     // Read IMU samples
     const imuSamples: IMUSample[] = [];
     for (let i = 0; i < header.imuCount; i++) {
-      const sample = this.readIMUSample(view, offset);
+      const sample = this.readIMUSample(view, offset, version);
       imuSamples.push(sample);
-      offset += this.IMU_SAMPLE_SIZE;
+      offset += imuSampleSize;
     }
     
     // Read GPS samples
@@ -78,13 +91,13 @@ export class BinaryDataReader {
       offset += this.GPS_SAMPLE_SIZE;
     }
     
-    // Read calibration samples if V2
+    // Read calibration samples if V2 or V3
     const calibrationSamples: IMUSample[] = [];
-    if (isV2 && header.calibrationCount > 0) {
+    if ((version === 2 || version === 3) && header.calibrationCount > 0) {
       for (let i = 0; i < header.calibrationCount; i++) {
-        const sample = this.readIMUSample(view, offset);
+        const sample = this.readIMUSample(view, offset, version);
         calibrationSamples.push(sample);
-        offset += this.IMU_SAMPLE_SIZE;
+        offset += imuSampleSize;
       }
     }
     
@@ -131,6 +144,45 @@ export class BinaryDataReader {
       finishThreshold,
       calibrationCount: 0,
       hasCalibration: false,
+    };
+  }
+
+  private readHeaderV3(view: DataView, offset: number): SessionMetadata & {
+    magic: string;
+    imuCount: number;
+    gpsCount: number;
+    sessionStart: number;
+    calibrationCount: number;
+    hasCalibration: boolean;
+  } {
+    // Read magic string
+    let magic = '';
+    for (let i = 0; i < 16; i++) {
+      const char = view.getUint8(offset++);
+      if (char !== 0) magic += String.fromCharCode(char);
+    }
+    
+    const imuCount = view.getUint32(offset, true); offset += 4;
+    const gpsCount = view.getUint32(offset, true); offset += 4;
+    const calibrationCount = view.getUint32(offset, true); offset += 4;
+    const hasCalibration = view.getUint8(offset++) === 1;
+    const sessionStart = view.getFloat64(offset, true); offset += 8;
+    const phoneOrientation: 'coxswain' | 'rower' = view.getUint8(offset++) === 1 ? 'coxswain' : 'rower';
+    const demoMode = view.getUint8(offset++) === 1;
+    const catchThreshold = view.getFloat32(offset, true); offset += 4;
+    const finishThreshold = view.getFloat32(offset, true); offset += 4;
+    
+    return {
+      magic,
+      imuCount,
+      gpsCount,
+      sessionStart,
+      phoneOrientation,
+      demoMode,
+      catchThreshold,
+      finishThreshold,
+      calibrationCount,
+      hasCalibration,
     };
   }
 
@@ -198,8 +250,8 @@ export class BinaryDataReader {
     };
   }
 
-  private readIMUSample(view: DataView, offset: number): IMUSample {
-    return {
+  private readIMUSample(view: DataView, offset: number, version: number): IMUSample {
+    const sample: IMUSample = {
       t: view.getFloat64(offset, true),
       ax: view.getFloat32(offset + 8, true),
       ay: view.getFloat32(offset + 12, true),
@@ -208,6 +260,20 @@ export class BinaryDataReader {
       gy: view.getFloat32(offset + 24, true),
       gz: view.getFloat32(offset + 28, true),
     };
+    
+    // V3: Read magnetometer data
+    if (version === 3) {
+      const mx = view.getFloat32(offset + 32, true);
+      const my = view.getFloat32(offset + 36, true);
+      const mz = view.getFloat32(offset + 40, true);
+      
+      // Only include if not NaN
+      if (Number.isFinite(mx)) sample.mx = mx;
+      if (Number.isFinite(my)) sample.my = my;
+      if (Number.isFinite(mz)) sample.mz = mz;
+    }
+    
+    return sample;
   }
 
   private readGPSSample(view: DataView, offset: number): GPSSample {

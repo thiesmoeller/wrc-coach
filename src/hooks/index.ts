@@ -8,4 +8,5 @@ export { useGeolocation, type GPSData, type UseGeolocationOptions } from './useG
 export { useSettings, type AppSettings } from './useSettings';
 export { useCalibration } from './useCalibration';
 export { useSessionStorage, type SessionData } from './useSessionStorage';
+export { useMagnetometer, type MagnetometerData, type UseMagnetometerOptions } from './useMagnetometer';
 

@@ -51,6 +51,9 @@ class IMUSample:
     gx: float  # deg/s
     gy: float
     gz: float
+    mx: Optional[float] = None  # µT (V3 only)
+    my: Optional[float] = None  # µT (V3 only)
+    mz: Optional[float] = None  # µT (V3 only)
 
 
 @dataclass
@@ -64,13 +67,17 @@ class GPSSample:
 
 
 class WRCDataReader:
-    """Reader for .wrcdata binary files (V1 and V2)"""
+    """Reader for .wrcdata binary files (V1, V2, and V3)"""
     
     MAGIC_V1 = b'WRC_COACH_V1'
     MAGIC_V2 = b'WRC_COACH_V2'
+    MAGIC_V3 = b'WRC_COACH_V3'
     HEADER_SIZE_V1 = 64
     HEADER_SIZE_V2 = 128
-    IMU_SAMPLE_SIZE = 32
+    HEADER_SIZE_V3 = 128
+    IMU_SAMPLE_SIZE_V1 = 32
+    IMU_SAMPLE_SIZE_V2 = 32
+    IMU_SAMPLE_SIZE_V3 = 44
     GPS_SAMPLE_SIZE = 36
     CALIBRATION_SIZE = 64
     
@@ -86,7 +93,9 @@ class WRCDataReader:
         
         # Detect version from magic string
         magic = data[0:16].rstrip(b'\x00').decode('ascii')
-        if magic.startswith('WRC_COACH_V2'):
+        if magic.startswith('WRC_COACH_V3'):
+            version = 3
+        elif magic.startswith('WRC_COACH_V2'):
             version = 2
         elif magic.startswith('WRC_COACH_V1'):
             version = 1
@@ -95,20 +104,24 @@ class WRCDataReader:
         
         # Read header
         header = self._read_header(data, offset, version)
-        offset += self.HEADER_SIZE_V2 if version == 2 else self.HEADER_SIZE_V1
+        header_size = self.HEADER_SIZE_V3 if version >= 2 else self.HEADER_SIZE_V1
+        offset += header_size
         
-        # Read calibration data if V2 and present
-        if version == 2 and header.has_calibration:
+        # Read calibration data if V2 or V3 and present
+        if version >= 2 and header.has_calibration:
             calibration = self._read_calibration(data, offset)
             header.calibration = calibration
             offset += self.CALIBRATION_SIZE
         
+        # Determine IMU sample size based on version
+        imu_sample_size = self.IMU_SAMPLE_SIZE_V3 if version == 3 else self.IMU_SAMPLE_SIZE_V2
+        
         # Read IMU samples
         imu_samples = []
         for _ in range(header.imu_count):
-            sample = self._read_imu_sample(data, offset)
+            sample = self._read_imu_sample(data, offset, version)
             imu_samples.append(sample)
-            offset += self.IMU_SAMPLE_SIZE
+            offset += imu_sample_size
         
         # Read GPS samples
         gps_samples = []
@@ -117,13 +130,13 @@ class WRCDataReader:
             gps_samples.append(sample)
             offset += self.GPS_SAMPLE_SIZE
         
-        # Read calibration samples (V2 only)
+        # Read calibration samples (V2/V3 only)
         calibration_samples = []
-        if version == 2:
+        if version >= 2:
             for _ in range(header.calibration_count):
-                sample = self._read_imu_sample(data, offset)
+                sample = self._read_imu_sample(data, offset, version)
                 calibration_samples.append(sample)
-                offset += self.IMU_SAMPLE_SIZE
+                offset += imu_sample_size
         
         return header, imu_samples, gps_samples, calibration_samples
     
@@ -136,8 +149,16 @@ class WRCDataReader:
             ('t', 'f8'), ('ax', 'f4'), ('ay', 'f4'), ('az', 'f4'),
             ('gx', 'f4'), ('gy', 'f4'), ('gz', 'f4')
         ]
+        
+        # Add magnetometer fields if V3
+        if header.version == 3:
+            imu_dtype.extend([('mx', 'f4'), ('my', 'f4'), ('mz', 'f4')])
+        
         imu_array = np.array([
-            (s.timestamp, s.ax, s.ay, s.az, s.gx, s.gy, s.gz)
+            (s.timestamp, s.ax, s.ay, s.az, s.gx, s.gy, s.gz) + 
+            ((s.mx if s.mx is not None else np.nan, 
+              s.my if s.my is not None else np.nan, 
+              s.mz if s.mz is not None else np.nan) if header.version == 3 else ())
             for s in imu_list
         ], dtype=imu_dtype)
         
@@ -151,7 +172,10 @@ class WRCDataReader:
         ], dtype=gps_dtype)
         
         cal_array = np.array([
-            (s.timestamp, s.ax, s.ay, s.az, s.gx, s.gy, s.gz)
+            (s.timestamp, s.ax, s.ay, s.az, s.gx, s.gy, s.gz) +
+            ((s.mx if s.mx is not None else np.nan, 
+              s.my if s.my is not None else np.nan, 
+              s.mz if s.mz is not None else np.nan) if header.version == 3 else ())
             for s in cal_list
         ], dtype=imu_dtype)
         
@@ -170,7 +194,8 @@ class WRCDataReader:
                 'az': s.az,
                 'gx': s.gx,
                 'gy': s.gy,
-                'gz': s.gz
+                'gz': s.gz,
+                **({'mx': s.mx, 'my': s.my, 'mz': s.mz} if s.mx is not None or s.my is not None or s.mz is not None else {})
             }
             for s in imu_list
         ])
@@ -197,7 +222,8 @@ class WRCDataReader:
                 'az': s.az,
                 'gx': s.gx,
                 'gy': s.gy,
-                'gz': s.gz
+                'gz': s.gz,
+                **({'mx': s.mx, 'my': s.my, 'mz': s.mz} if s.mx is not None or s.my is not None or s.mz is not None else {})
             }
             for s in cal_list
         ])
@@ -225,7 +251,7 @@ class WRCDataReader:
         # V2 has calibration count
         calibration_count = 0
         has_calibration = False
-        if version == 2:
+        if version >= 2:
             calibration_count, = struct.unpack_from('<I', data, offset)
             offset += 4
             has_calibration = struct.unpack_from('<B', data, offset)[0] == 1
@@ -284,9 +310,21 @@ class WRCDataReader:
             timestamp=timestamp
         )
     
-    def _read_imu_sample(self, data: bytes, offset: int) -> IMUSample:
-        t, ax, ay, az, gx, gy, gz = struct.unpack_from('<dffffff', data, offset)
-        return IMUSample(t, ax, ay, az, gx, gy, gz)
+    def _read_imu_sample(self, data: bytes, offset: int, version: int) -> IMUSample:
+        if version == 3:
+            # V3: includes magnetometer (44 bytes)
+            # Format: d (timestamp) + fffffff (ax,ay,az,gx,gy,gz) + fff (mx,my,mz)
+            t, ax, ay, az, gx, gy, gz, mx, my, mz = struct.unpack_from('<dfffffffff', data, offset)
+            # Only include magnetometer if not NaN (using math.isnan for safety)
+            import math
+            mx_val = mx if not math.isnan(mx) else None
+            my_val = my if not math.isnan(my) else None
+            mz_val = mz if not math.isnan(mz) else None
+            return IMUSample(t, ax, ay, az, gx, gy, gz, mx_val, my_val, mz_val)
+        else:
+            # V1/V2: no magnetometer (32 bytes)
+            t, ax, ay, az, gx, gy, gz = struct.unpack_from('<dffffff', data, offset)
+            return IMUSample(t, ax, ay, az, gx, gy, gz)
     
     def _read_gps_sample(self, data: bytes, offset: int) -> GPSSample:
         t, lat, lon, speed, heading, accuracy = struct.unpack_from('<dddfff', data, offset)
