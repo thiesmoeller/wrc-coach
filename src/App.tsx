@@ -61,6 +61,18 @@ function App() {
   const drivePercentsRef = useRef<number[]>([]);
   const speedsRef = useRef<number[]>([]);
   
+  // Sensor status tracking
+  const imuLastTimeRef = useRef<number | null>(null);
+  const gyroLastTimeRef = useRef<number | null>(null);
+  const magLastTimeRef = useRef<number | null>(null);
+  const gpsLastTimeRef = useRef<number | null>(null);
+  const [sensorStatus, setSensorStatus] = useState({
+    imu: false,
+    gyro: false,
+    mag: false,
+    gps: false,
+  });
+  
   // UI State
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
   const [sessionPanelOpen, setSessionPanelOpen] = useState(false);
@@ -125,6 +137,11 @@ function App() {
   const handleMotion = useCallback((data: MotionData) => {
     // Always store latest motion data for calibration
     setLatestMotionData(data);
+    
+    // Track sensor status
+    const now = performance.now();
+    imuLastTimeRef.current = now;
+    gyroLastTimeRef.current = now; // Gyro comes with accel in DeviceMotion
     
     if (!isRunning) return;
 
@@ -193,6 +210,9 @@ function App() {
 
   // Handle Magnetometer data (Android/Chrome only)
   const handleMagnetometer = useCallback((data: MagnetometerData) => {
+    // Track sensor status
+    magLastTimeRef.current = performance.now();
+    
     if (!isRunning) return;
 
     const sample: Sample = {
@@ -207,6 +227,9 @@ function App() {
 
   // Handle GPS data
   const handlePosition = useCallback((data: GPSData) => {
+    // Track sensor status
+    gpsLastTimeRef.current = performance.now();
+    
     if (!isRunning) return;
 
     // Update Kalman filter with GPS measurement
@@ -227,6 +250,33 @@ function App() {
 
     setSamples((prev) => [...prev, sample]);
   }, [isRunning]);
+
+  // Update sensor status periodically
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = performance.now();
+      const TIMEOUT_MS = 2000; // Consider sensor inactive if no data for 2 seconds
+      
+      // In demo mode, all sensors are simulated so show as active
+      if (settings.demoMode) {
+        setSensorStatus({
+          imu: true,
+          gyro: true,
+          mag: false, // Magnetometer not simulated in demo mode
+          gps: isRunning, // GPS only active when recording in demo mode
+        });
+      } else {
+        setSensorStatus({
+          imu: imuLastTimeRef.current !== null && (now - imuLastTimeRef.current) < TIMEOUT_MS,
+          gyro: gyroLastTimeRef.current !== null && (now - gyroLastTimeRef.current) < TIMEOUT_MS,
+          mag: magLastTimeRef.current !== null && (now - magLastTimeRef.current) < TIMEOUT_MS,
+          gps: gpsLastTimeRef.current !== null && (now - gpsLastTimeRef.current) < TIMEOUT_MS,
+        });
+      }
+    }, 500); // Check every 500ms
+    
+    return () => clearInterval(interval);
+  }, [settings.demoMode, isRunning]);
 
   // Setup sensors - always enabled for calibration
   useDeviceMotion({ onMotion: handleMotion, enabled: true, demoMode: settings.demoMode });
@@ -338,6 +388,7 @@ function App() {
       <Header
         isRecording={isRunning}
         isDemoMode={settings.demoMode}
+        sensorStatus={sensorStatus}
         onMenuClick={() => setSettingsPanelOpen(true)}
       />
 

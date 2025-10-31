@@ -114,7 +114,12 @@ class WRCDataReader:
             offset += self.CALIBRATION_SIZE
         
         # Determine IMU sample size based on version
-        imu_sample_size = self.IMU_SAMPLE_SIZE_V3 if version == 3 else self.IMU_SAMPLE_SIZE_V2
+        if version == 3:
+            imu_sample_size = self.IMU_SAMPLE_SIZE_V3
+        elif version == 2:
+            imu_sample_size = self.IMU_SAMPLE_SIZE_V2
+        else:  # version == 1
+            imu_sample_size = self.IMU_SAMPLE_SIZE_V1
         
         # Read IMU samples
         imu_samples = []

@@ -104,47 +104,78 @@ export class IndexedDBStorage {
     const imuSamples: IMUSample[] = [];
     const gpsSamples: GPSSample[] = [];
     
-    // Create a map to merge IMU samples with magnetometer data by timestamp
-    const imuMap = new Map<number, IMUSample>();
+    // Collect all samples first, then merge by rounded timestamp
+    // Round timestamps to 1ms resolution to merge samples from different sensors
+    const TIMESTAMP_ROUNDING_MS = 1;
+    const roundTimestamp = (t: number) => Math.round(t / TIMESTAMP_ROUNDING_MS) * TIMESTAMP_ROUNDING_MS;
     
+    const imuMap = new Map<number, IMUSample>();
+    const magnetometerSamples: Array<{ t: number; mx?: number; my?: number; mz?: number }> = [];
+    
+    // First pass: collect accel/gyro samples and magnetometer samples separately
     for (const sample of sessionData.samples) {
       if (sample.type === 'imu') {
         const timestamp = sample.timestamp || sample.t;
-        const existing = imuMap.get(timestamp);
+        const roundedTimestamp = roundTimestamp(timestamp);
         
-        if (existing) {
-          // Merge magnetometer data into existing IMU sample
-          if (sample.mx !== undefined) existing.mx = sample.mx;
-          if (sample.my !== undefined) existing.my = sample.my;
-          if (sample.mz !== undefined) existing.mz = sample.mz;
+        if (sample.mx !== undefined || sample.my !== undefined || sample.mz !== undefined) {
+          // Check if this is a magnetometer-only sample
+          if (sample.ax === undefined && sample.ay === undefined && sample.az === undefined &&
+              sample.gx === undefined && sample.gy === undefined && sample.gz === undefined) {
+            // Pure magnetometer sample - store for merging
+            magnetometerSamples.push({
+              t: timestamp,
+              mx: sample.mx,
+              my: sample.my,
+              mz: sample.mz,
+            });
+          } else {
+            // Combined sample (accel/gyro + magnetometer)
+            const existing = imuMap.get(roundedTimestamp);
+            if (existing) {
+              // Merge magnetometer data into existing sample
+              if (sample.mx !== undefined) existing.mx = sample.mx;
+              if (sample.my !== undefined) existing.my = sample.my;
+              if (sample.mz !== undefined) existing.mz = sample.mz;
+            } else {
+              // Create new IMU sample with all data
+              imuMap.set(roundedTimestamp, {
+                t: timestamp, // Keep original timestamp
+                ax: sample.ax ?? 0,
+                ay: sample.ay ?? 0,
+                az: sample.az ?? 0,
+                gx: sample.gx ?? 0,
+                gy: sample.gy ?? 0,
+                gz: sample.gz ?? 0,
+                mx: sample.mx,
+                my: sample.my,
+                mz: sample.mz,
+              });
+            }
+          }
         } else if (sample.ax !== undefined || sample.ay !== undefined || sample.az !== undefined) {
-          // Create new IMU sample with accel/gyro data
-          imuMap.set(timestamp, {
-            t: timestamp,
-            ax: sample.ax ?? 0,
-            ay: sample.ay ?? 0,
-            az: sample.az ?? 0,
-            gx: sample.gx ?? 0,
-            gy: sample.gy ?? 0,
-            gz: sample.gz ?? 0,
-            mx: sample.mx,
-            my: sample.my,
-            mz: sample.mz,
-          });
-        } else if (sample.mx !== undefined || sample.my !== undefined || sample.mz !== undefined) {
-          // Create new IMU sample with only magnetometer data (might happen if accel/gyro arrives later)
-          imuMap.set(timestamp, {
-            t: timestamp,
-            ax: 0,
-            ay: 0,
-            az: 0,
-            gx: 0,
-            gy: 0,
-            gz: 0,
-            mx: sample.mx,
-            my: sample.my,
-            mz: sample.mz,
-          });
+          // Accel/gyro sample - check if we can merge with existing magnetometer
+          const existing = imuMap.get(roundedTimestamp);
+          if (existing) {
+            // Update accel/gyro data if needed
+            if (sample.ax !== undefined) existing.ax = sample.ax;
+            if (sample.ay !== undefined) existing.ay = sample.ay;
+            if (sample.az !== undefined) existing.az = sample.az;
+            if (sample.gx !== undefined) existing.gx = sample.gx;
+            if (sample.gy !== undefined) existing.gy = sample.gy;
+            if (sample.gz !== undefined) existing.gz = sample.gz;
+          } else {
+            // Create new IMU sample with accel/gyro data
+            imuMap.set(roundedTimestamp, {
+              t: timestamp,
+              ax: sample.ax ?? 0,
+              ay: sample.ay ?? 0,
+              az: sample.az ?? 0,
+              gx: sample.gx ?? 0,
+              gy: sample.gy ?? 0,
+              gz: sample.gz ?? 0,
+            });
+          }
         }
       } else if (sample.type === 'gps') {
         gpsSamples.push({
@@ -154,6 +185,56 @@ export class IndexedDBStorage {
           speed: sample.speed ?? 0,
           heading: sample.heading ?? 0,
           accuracy: sample.accuracy ?? 0,
+        });
+      }
+    }
+    
+    // Second pass: merge magnetometer-only samples with nearest accel/gyro samples
+    // Use a time window of 10ms to find matching samples
+    const MAGNETOMETER_MERGE_WINDOW_MS = 10;
+    for (const magSample of magnetometerSamples) {
+      const roundedTimestamp = roundTimestamp(magSample.t);
+      
+      // Try exact match first
+      let target = imuMap.get(roundedTimestamp);
+      
+      // If no exact match, find nearest sample within window
+      if (!target) {
+        let nearestTimestamp: number | null = null;
+        let nearestDistance = Infinity;
+        
+        for (const [timestamp, _] of imuMap.entries()) {
+          const distance = Math.abs(timestamp - roundedTimestamp);
+          if (distance < MAGNETOMETER_MERGE_WINDOW_MS && distance < nearestDistance) {
+            nearestTimestamp = timestamp;
+            nearestDistance = distance;
+          }
+        }
+        
+        if (nearestTimestamp !== null) {
+          target = imuMap.get(nearestTimestamp)!;
+        }
+      }
+      
+      if (target) {
+        // Merge magnetometer data into nearest accel/gyro sample
+        if (magSample.mx !== undefined) target.mx = magSample.mx;
+        if (magSample.my !== undefined) target.my = magSample.my;
+        if (magSample.mz !== undefined) target.mz = magSample.mz;
+      } else {
+        // No matching accel/gyro sample found - create IMU sample with only magnetometer
+        // This should be rare, but can happen if sensors are out of sync
+        imuMap.set(roundedTimestamp, {
+          t: magSample.t,
+          ax: 0,
+          ay: 0,
+          az: 0,
+          gx: 0,
+          gy: 0,
+          gz: 0,
+          mx: magSample.mx,
+          my: magSample.my,
+          mz: magSample.mz,
         });
       }
     }

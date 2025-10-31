@@ -1,12 +1,20 @@
 import './Header.css';
 
+interface SensorStatus {
+  imu: boolean;
+  gyro: boolean;
+  mag: boolean;
+  gps: boolean;
+}
+
 interface HeaderProps {
   isRecording: boolean;
   isDemoMode: boolean;
+  sensorStatus: SensorStatus;
   onMenuClick: () => void;
 }
 
-export function Header({ isRecording, isDemoMode, onMenuClick }: HeaderProps) {
+export function Header({ isRecording, isDemoMode, sensorStatus, onMenuClick }: HeaderProps) {
   return (
     <header className="header">
       <button 
@@ -30,6 +38,22 @@ export function Header({ isRecording, isDemoMode, onMenuClick }: HeaderProps) {
         <span>
           {isDemoMode ? 'Demo Mode' : isRecording ? 'Recording' : 'Ready'}
         </span>
+        
+        {/* Sensor status indicators */}
+        <div className="sensor-status">
+          <span className={`sensor-indicator ${sensorStatus.imu ? 'active' : 'inactive'}`} title="Accelerometer (IMU)">
+            IMU
+          </span>
+          <span className={`sensor-indicator ${sensorStatus.gyro ? 'active' : 'inactive'}`} title="Gyroscope">
+            GYRO
+          </span>
+          <span className={`sensor-indicator ${sensorStatus.mag ? 'active' : 'inactive'}`} title="Magnetometer">
+            MAG
+          </span>
+          <span className={`sensor-indicator ${sensorStatus.gps ? 'active' : 'inactive'}`} title="GPS">
+            GPS
+          </span>
+        </div>
       </div>
     </header>
   );
