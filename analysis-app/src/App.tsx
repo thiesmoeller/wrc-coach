@@ -12,6 +12,99 @@ import { CacheInfoPanel } from './components/CacheInfoPanel';
 import './App.css';
 
 /**
+ * Interpolate NaN values in an array using linear interpolation
+ * Handles edges by extending from nearest valid value
+ * @param values Array of values that may contain NaN
+ * @param isAngle If true, handles angular wrapping (0-360 degrees)
+ */
+function interpolateNaN(values: number[], isAngle = false): number[] {
+  if (values.length === 0) return values;
+  
+  const result = [...values];
+  
+  // Find first and last valid indices
+  let firstValid = -1;
+  let lastValid = -1;
+  
+  for (let i = 0; i < values.length; i++) {
+    if (Number.isFinite(values[i])) {
+      if (firstValid === -1) firstValid = i;
+      lastValid = i;
+    }
+  }
+  
+  // If no valid values, return as-is
+  if (firstValid === -1) return result;
+  
+  // Fill leading NaNs with first valid value
+  for (let i = 0; i < firstValid; i++) {
+    result[i] = values[firstValid];
+  }
+  
+  // Fill trailing NaNs with last valid value
+  for (let i = lastValid + 1; i < values.length; i++) {
+    result[i] = values[lastValid];
+  }
+  
+  // Interpolate gaps between valid values
+  let i = firstValid;
+  while (i < lastValid) {
+    if (Number.isFinite(result[i])) {
+      // Find next valid value
+      let j = i + 1;
+      while (j <= lastValid && !Number.isFinite(result[j])) {
+        j++;
+      }
+      
+      if (j <= lastValid && Number.isFinite(result[j])) {
+        // Interpolate between result[i] and result[j]
+        let startValue = result[i];
+        let endValue = result[j];
+        const gap = j - i;
+        
+        if (isAngle) {
+          // Handle angular wrapping - find shortest path around circle
+          const diff = endValue - startValue;
+          let adjustedDiff = diff;
+          
+          // Normalize to -180 to 180 range
+          if (Math.abs(diff) > 180) {
+            if (diff > 0) {
+              adjustedDiff = diff - 360;
+            } else {
+              adjustedDiff = diff + 360;
+            }
+          }
+          
+          for (let k = i + 1; k < j; k++) {
+            const t = (k - i) / gap;
+            let interpolated = startValue + t * adjustedDiff;
+            // Normalize to 0-360
+            while (interpolated < 0) interpolated += 360;
+            while (interpolated >= 360) interpolated -= 360;
+            result[k] = interpolated;
+          }
+        } else {
+          // Regular linear interpolation
+          for (let k = i + 1; k < j; k++) {
+            const t = (k - i) / gap;
+            result[k] = startValue + t * (endValue - startValue);
+          }
+        }
+        
+        i = j;
+      } else {
+        i++;
+      }
+    } else {
+      i++;
+    }
+  }
+  
+  return result;
+}
+
+/**
  * Main application component
  * Provides desktop/tablet interface for analyzing rowing data
  */
@@ -27,6 +120,16 @@ function App() {
   });
   const [activeTab, setActiveTab] = useState<'overview' | 'strokes' | 'gps' | 'raw' | 'pwa-preview'>('overview');
   const [fileName, setFileName] = useState<string>('');
+  
+  // Zoom state for synchronized x-axis zooming across plots within the same tab
+  // Each tab has its own independent zoom state
+  const [xZoomRanges, setXZoomRanges] = useState<Record<string, { min: number | null; max: number | null }>>({
+    overview: { min: null, max: null },
+    strokes: { min: null, max: null },
+    raw: { min: null, max: null },
+    gps: { min: null, max: null },
+    'pwa-preview': { min: null, max: null },
+  });
 
   // Handle file upload
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -42,6 +145,15 @@ function App() {
         const binaryReader = new BinaryDataReader();
         const data = binaryReader.decode(buffer);
         setSessionData(data);
+
+        // Reset zoom when loading new file
+        setXZoomRanges({
+          overview: { min: null, max: null },
+          strokes: { min: null, max: null },
+          raw: { min: null, max: null },
+          gps: { min: null, max: null },
+          'pwa-preview': { min: null, max: null },
+        });
 
         // Perform initial analysis
         const results = DataAnalyzer.analyze(data, params);
@@ -62,6 +174,14 @@ function App() {
       setAnalysisResults(results);
     }
   }, [sessionData]);
+
+  // Handle zoom change from plots
+  const handleZoomChange = useCallback((min: number | null, max: number | null) => {
+    setXZoomRanges(prev => ({
+      ...prev,
+      [activeTab]: { min, max },
+    }));
+  }, [activeTab]);
 
   return (
     <div className="app">
@@ -180,6 +300,8 @@ function App() {
                       ]}
                       yLabel="Fore-aft Acceleration (m/s²)"
                       height={350}
+                      xRange={xZoomRanges.overview}
+                      onZoomChange={handleZoomChange}
                     />
                   </div>
                 </div>
@@ -217,6 +339,8 @@ function App() {
                       ]}
                       yLabel="Acceleration (m/s²)"
                       height={400}
+                      xRange={xZoomRanges.strokes}
+                      onZoomChange={handleZoomChange}
                     />
                   </div>
 
@@ -293,6 +417,8 @@ function App() {
                       ]}
                       yLabel="Acceleration (m/s²)"
                       height={350}
+                      xRange={xZoomRanges.raw}
+                      onZoomChange={handleZoomChange}
                     />
                   </div>
 
@@ -322,17 +448,55 @@ function App() {
                       ]}
                       yLabel="Angular Velocity (deg/s)"
                       height={350}
+                      xRange={xZoomRanges.raw}
+                      onZoomChange={handleZoomChange}
                     />
                   </div>
+
+                  {/* Orientation Data (V3 only) */}
+                  {sessionData.imuSamples.some(s => 
+                    (s.mx !== undefined && Number.isFinite(s.mx)) ||
+                    (s.my !== undefined && Number.isFinite(s.my)) ||
+                    (s.mz !== undefined && Number.isFinite(s.mz))
+                  ) && (
+                    <div className="plot-section">
+                      <TimeSeriesPlot
+                        title="Orientation Data"
+                        timeVector={analysisResults.timeVector}
+                        series={[
+                          {
+                            name: 'alpha (compass heading)',
+                            data: interpolateNaN(sessionData.imuSamples.map(s => s.mx ?? NaN), true),
+                            color: '#ff6b6b',
+                            width: 1.5,
+                          },
+                          {
+                            name: 'beta (front-back tilt)',
+                            data: interpolateNaN(sessionData.imuSamples.map(s => s.my ?? NaN)),
+                            color: '#4ecdc4',
+                            width: 1.5,
+                          },
+                          {
+                            name: 'gamma (left-right tilt)',
+                            data: interpolateNaN(sessionData.imuSamples.map(s => s.mz ?? NaN)),
+                            color: '#45b7d1',
+                            width: 1.5,
+                          },
+                        ]}
+                        yLabel="Orientation (degrees)"
+                        height={350}
+                        xRange={xZoomRanges.raw}
+                        onZoomChange={handleZoomChange}
+                      />
+                    </div>
+                  )}
 
                   {sessionData.gpsSamples.length > 0 && (
                     <div className="plot-section">
                       <TimeSeriesPlot
                         title="GPS Speed"
                         timeVector={sessionData.gpsSamples.map(
-                          (s, i) => i < analysisResults.timeVector.length 
-                            ? (s.t - sessionData.imuSamples[0].t) / 1000 
-                            : 0
+                          (s) => (s.t - sessionData.imuSamples[0].t) / 1000
                         )}
                         series={[
                           {
@@ -344,6 +508,8 @@ function App() {
                         ]}
                         yLabel="Speed (m/s)"
                         height={300}
+                        xRange={xZoomRanges.raw}
+                        onZoomChange={handleZoomChange}
                       />
                     </div>
                   )}

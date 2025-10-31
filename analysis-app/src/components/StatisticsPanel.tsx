@@ -50,6 +50,13 @@ export const StatisticsPanel: React.FC<Props> = ({ sessionData, analysisResults 
 
   const sessionDate = new Date(metadata.sessionStart);
 
+  // Count orientation samples (V3 only)
+  const orientationSamples = imuSamples.filter(
+    s => (s.mx !== undefined && Number.isFinite(s.mx)) ||
+         (s.my !== undefined && Number.isFinite(s.my)) ||
+         (s.mz !== undefined && Number.isFinite(s.mz))
+  ).length;
+
   return (
     <div className="statistics-panel">
       <h3>Session Summary</h3>
@@ -127,6 +134,13 @@ export const StatisticsPanel: React.FC<Props> = ({ sessionData, analysisResults 
           <div className="stat-label">GPS Samples</div>
           <div className="stat-value">{gpsSamples.length}</div>
         </div>
+
+        {orientationSamples > 0 && (
+          <div className="stat-card">
+            <div className="stat-label">Orientation Samples</div>
+            <div className="stat-value">{orientationSamples.toLocaleString()}</div>
+          </div>
+        )}
 
         <div className="stat-card">
           <div className="stat-label">IMU Rate</div>
