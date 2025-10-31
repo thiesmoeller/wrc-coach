@@ -65,6 +65,7 @@ function App() {
   const imuLastTimeRef = useRef<number | null>(null);
   const gyroLastTimeRef = useRef<number | null>(null);
   const magLastTimeRef = useRef<number | null>(null);
+  const magActivatedTimeRef = useRef<number | null>(null);
   const gpsLastTimeRef = useRef<number | null>(null);
   const [sensorStatus, setSensorStatus] = useState({
     imu: false,
@@ -251,11 +252,32 @@ function App() {
     setSamples((prev) => [...prev, sample]);
   }, [isRunning]);
 
+  // Setup sensors - always enabled for calibration
+  // IMU/Gyro: Event-driven, typically 50-100 Hz (device dependent, includes 60 Hz)
+  useDeviceMotion({ onMotion: handleMotion, enabled: true, demoMode: settings.demoMode });
+  
+  // Magnetometer: 10 Hz (Chrome limits to 10Hz max for privacy reasons)
+  const magnetometerActive = useMagnetometer({ onMagnetometer: handleMagnetometer, enabled: true, frequency: 10 });
+  
+  // GPS: Event-driven, typically ~1 Hz (browser/device controlled)
+  useGeolocation({ onPosition: handlePosition, enabled: isRunning, demoMode: settings.demoMode });
+
+  // Track when magnetometer becomes active
+  useEffect(() => {
+    if (magnetometerActive && magActivatedTimeRef.current === null) {
+      magActivatedTimeRef.current = performance.now();
+    } else if (!magnetometerActive) {
+      magActivatedTimeRef.current = null;
+      magLastTimeRef.current = null;
+    }
+  }, [magnetometerActive]);
+
   // Update sensor status periodically
   useEffect(() => {
     const interval = setInterval(() => {
       const now = performance.now();
       const TIMEOUT_MS = 2000; // Consider sensor inactive if no data for 2 seconds
+      const ACTIVATION_GRACE_MS = 3000; // Show as active for 3 seconds after activation even without data
       
       // In demo mode, all sensors are simulated so show as active
       if (settings.demoMode) {
@@ -266,22 +288,25 @@ function App() {
           gps: isRunning, // GPS only active when recording in demo mode
         });
       } else {
+        // For magnetometer: show active if sensor is running AND either:
+        // - we received data recently (within timeout)
+        // - sensor just activated and we're within grace period (even without data yet)
+        const magActive = magnetometerActive && (
+          (magLastTimeRef.current !== null && (now - magLastTimeRef.current) < TIMEOUT_MS) ||
+          (magActivatedTimeRef.current !== null && (now - magActivatedTimeRef.current) < ACTIVATION_GRACE_MS)
+        );
+        
         setSensorStatus({
           imu: imuLastTimeRef.current !== null && (now - imuLastTimeRef.current) < TIMEOUT_MS,
           gyro: gyroLastTimeRef.current !== null && (now - gyroLastTimeRef.current) < TIMEOUT_MS,
-          mag: magLastTimeRef.current !== null && (now - magLastTimeRef.current) < TIMEOUT_MS,
+          mag: magActive,
           gps: gpsLastTimeRef.current !== null && (now - gpsLastTimeRef.current) < TIMEOUT_MS,
         });
       }
     }, 500); // Check every 500ms
     
     return () => clearInterval(interval);
-  }, [settings.demoMode, isRunning]);
-
-  // Setup sensors - always enabled for calibration
-  useDeviceMotion({ onMotion: handleMotion, enabled: true, demoMode: settings.demoMode });
-  useMagnetometer({ onMagnetometer: handleMagnetometer, enabled: true, frequency: 60 });
-  useGeolocation({ onPosition: handlePosition, enabled: isRunning, demoMode: settings.demoMode });
+  }, [settings.demoMode, isRunning, magnetometerActive]);
 
   // Start session
   const handleStart = useCallback(() => {
