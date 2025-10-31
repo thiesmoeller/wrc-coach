@@ -135,10 +135,13 @@ export function useSessionStorage() {
     sessionData: Omit<SessionData, 'id' | 'timestamp'>
   ) => {
     try {
-      const metadata = await storage.updateSession(sessionId, {
+      // For batch saves: just append chunks (no read required!)
+      await storage.appendSessionChunk(sessionId, sessionData.samples);
+      
+      // Update metadata only (without reading all samples)
+      const metadata = await storage.updateSessionMetadata(sessionId, {
         sessionStartTime: sessionData.sessionStartTime,
         duration: sessionData.duration,
-        samples: sessionData.samples,
         avgStrokeRate: sessionData.avgStrokeRate,
         avgDrivePercent: sessionData.avgDrivePercent,
         maxSpeed: sessionData.maxSpeed,
@@ -151,7 +154,7 @@ export function useSessionStorage() {
         calibrationData: sessionData.calibrationData,
       });
 
-      // Update sessions list if this session already exists, otherwise add it
+      // Update sessions list
       setSessions(prev => {
         const existingIndex = prev.findIndex(s => s.id === sessionId);
         if (existingIndex >= 0) {
@@ -168,7 +171,6 @@ export function useSessionStorage() {
       console.error('Error saving session incrementally:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       if (errorMessage.includes('Storage full')) {
-        // Don't show alert during incremental saves - just log
         console.warn('Storage full during incremental save. User should delete old sessions.');
       }
       throw error;

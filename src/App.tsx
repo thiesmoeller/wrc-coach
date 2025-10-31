@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { Header } from './components/Header';
+import { CircularBuffer } from './lib/data-storage/CircularBuffer';
 import { MetricsBar } from './components/MetricsBar';
 import { ControlPanel } from './components/ControlPanel';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -51,18 +52,25 @@ function App() {
   const { sessions, isLoading, saveSession, saveSessionIncremental, deleteSession, clearAllSessions, getSessionBinary } = useSessionStorage();
   const [isRunning, setIsRunning] = useState(false);
   const isRunningRef = useRef(false); // Ref to track isRunning for callbacks
-  const [samples, setSamples] = useState<Sample[]>([]);
-  const samplesRef = useRef<Sample[]>([]); // Ref to track current samples for incremental saves
-  const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
-  const sessionStartTimeRef = useRef<number | null>(null); // Ref to track session start time for incremental saves
-  const [latestMotionData, setLatestMotionData] = useState<MotionData | null>(null);
-  const currentSessionIdRef = useRef<string | null>(null); // Track current session ID for incremental saves
-  const saveIntervalRef = useRef<number | null>(null); // Track interval for batch saves
+  // Circular buffer: ~2-3 minutes of samples (roughly 6000-12000 samples at 50-100 Hz)
+  const CIRCULAR_BUFFER_SIZE = 12000; // ~3 minutes at 100 Hz
+  const BATCH_WRITE_SIZE_BYTES = 32 * 1024; // 32KB
   
-  // Keep samples ref in sync with state
-  useEffect(() => {
-    samplesRef.current = samples;
-  }, [samples]);
+  // UI samples: Keep only last 2 minutes for plots (sufficient for last N strokes)
+  const [samples, setSamples] = useState<Sample[]>([]);
+  const UI_SAMPLES_DURATION_MS = 2 * 60 * 1000; // 2 minutes
+  
+  // Total sample counter: Track total samples independently of UI samples
+  const [totalSampleCount, setTotalSampleCount] = useState(0);
+  
+  // Circular buffer for samples
+  const sampleBufferRef = useRef<CircularBuffer<Sample>>(new CircularBuffer(CIRCULAR_BUFFER_SIZE));
+  
+  const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
+  const sessionStartTimeRef = useRef<number | null>(null); // Ref to track session start time
+  const [latestMotionData, setLatestMotionData] = useState<MotionData | null>(null);
+  const currentSessionIdRef = useRef<string | null>(null); // Track current session ID for batch writes
+  const writeCheckIntervalRef = useRef<number | null>(null); // Check for write every second
   
   // Keep sessionStartTime ref in sync with state
   useEffect(() => {
@@ -77,9 +85,9 @@ function App() {
   // Cleanup interval on unmount
   useEffect(() => {
     return () => {
-      if (saveIntervalRef.current !== null) {
-        clearInterval(saveIntervalRef.current);
-        saveIntervalRef.current = null;
+      if (writeCheckIntervalRef.current !== null) {
+        clearInterval(writeCheckIntervalRef.current);
+        writeCheckIntervalRef.current = null;
       }
     };
   }, []);
@@ -93,6 +101,21 @@ function App() {
   const strokeRatesRef = useRef<number[]>([]);
   const drivePercentsRef = useRef<number[]>([]);
   const speedsRef = useRef<number[]>([]);
+  
+  // Helper: Limit UI samples to last 2 minutes
+  const limitUISamples = useCallback((newSamples: Sample[]) => {
+    if (!sessionStartTimeRef.current) return newSamples;
+    
+      const cutoffTime = Date.now() - UI_SAMPLES_DURATION_MS;
+      return newSamples.filter(s => {
+        const sampleTime = s.t || 0;
+        // If sample time is relative (smaller than session start), convert to absolute
+        const absoluteTime = sampleTime < sessionStartTimeRef.current! 
+          ? sessionStartTimeRef.current! + sampleTime 
+          : sampleTime;
+        return absoluteTime >= cutoffTime;
+      });
+  }, []);
   
   // Sensor status tracking
   const imuLastTimeRef = useRef<number | null>(null);
@@ -239,8 +262,16 @@ function App() {
       roll: orientation.roll,
     };
 
-    setSamples((prev) => [...prev, sample]);
-  }, [isRunning, settings.phoneOrientation, isCalibrated, applyCalibration]);
+    // Add to circular buffer
+    sampleBufferRef.current.push(sample);
+    
+    // Update UI samples from buffer (limited to last 2 minutes)
+    const allBufferSamples = sampleBufferRef.current.getAllItems();
+    setSamples(limitUISamples(allBufferSamples));
+    
+    // Increment total sample counter
+    setTotalSampleCount(prev => prev + 1);
+  }, [isRunning, settings.phoneOrientation, isCalibrated, applyCalibration, limitUISamples]);
 
   // Track orientation sample count for debugging
   const orientationSampleCountRef = useRef(0);
@@ -253,13 +284,12 @@ function App() {
     // Use ref to check isRunning (avoids closure issues)
     const currentlyRunning = isRunningRef.current;
     
-    // Log first few orientation samples for debugging (use console.error for better visibility in adb logcat)
-    orientationSampleCountRef.current++;
-    if (orientationSampleCountRef.current <= 5) {
-      const msg = `[Orientation] Sample ${orientationSampleCountRef.current}: alpha=${data.alpha.toFixed(1)}, beta=${data.beta.toFixed(1)}, gamma=${data.gamma.toFixed(1)}, isRunning=${currentlyRunning}`;
-      console.log(msg);
-      console.error(msg); // Also log as error for better visibility in adb logcat
-    }
+      // Log first few orientation samples for debugging
+      orientationSampleCountRef.current++;
+      if (orientationSampleCountRef.current <= 5) {
+        const msg = `[Orientation] Sample ${orientationSampleCountRef.current}: alpha=${data.alpha.toFixed(1)}, beta=${data.beta.toFixed(1)}, gamma=${data.gamma.toFixed(1)}, isRunning=${currentlyRunning}`;
+        console.log(msg);
+      }
     
     if (!currentlyRunning) return;
 
@@ -270,16 +300,21 @@ function App() {
       beta: data.beta,   // Front-back tilt
       gamma: data.gamma, // Left-right tilt
     };
-    setSamples((prev) => {
-      const newSamples = [...prev, sample];
-      // Log when we store orientation samples during recording
-      if (orientationSampleCountRef.current <= 10) {
-        const storeMsg = `[App] Stored orientation sample ${orientationSampleCountRef.current} (total samples: ${newSamples.length})`;
-        console.log(storeMsg);
-        console.error(storeMsg);
-      }
-      return newSamples;
-    });
+    // Add to circular buffer
+    sampleBufferRef.current.push(sample);
+    
+    // Update UI samples from buffer (limited to last 2 minutes)
+    const allBufferSamples = sampleBufferRef.current.getAllItems();
+    setSamples(limitUISamples(allBufferSamples));
+    
+    // Increment total sample counter
+    setTotalSampleCount(prev => prev + 1);
+    
+    // Log when we store orientation samples during recording
+    if (orientationSampleCountRef.current <= 10) {
+      const storeMsg = `[App] Stored orientation sample ${orientationSampleCountRef.current} (total samples: ${totalSampleCount + 1})`;
+      console.log(storeMsg);
+    }
   }, []); // Empty deps - using ref instead
 
   // Handle GPS data
@@ -305,8 +340,16 @@ function App() {
       type: 'gps',
     };
 
-    setSamples((prev) => [...prev, sample]);
-  }, [isRunning]);
+    // Add to circular buffer
+    sampleBufferRef.current.push(sample);
+    
+    // Update UI samples from buffer (limited to last 2 minutes)
+    const allBufferSamples = sampleBufferRef.current.getAllItems();
+    setSamples(limitUISamples(allBufferSamples));
+    
+    // Increment total sample counter
+    setTotalSampleCount(prev => prev + 1);
+  }, [isRunning, limitUISamples]);
 
   // Setup sensors - always enabled for calibration
   // IMU/Gyro: Event-driven, typically 50-100 Hz (device dependent, includes 60 Hz)
@@ -365,26 +408,30 @@ function App() {
   }, [settings.demoMode, isRunning, orientationActive]);
 
   // Helper function to calculate current session metrics
-  const calculateCurrentMetrics = useCallback((currentSamples: Sample[]) => {
+  // Uses accumulated refs (independent of samples in memory)
+  const calculateCurrentMetrics = useCallback(() => {
     const startTime = sessionStartTimeRef.current;
     const duration = startTime ? Date.now() - startTime : 0;
     
-    // Calculate average stroke rate from tracked strokes
+    // Calculate average stroke rate from tracked strokes (accumulated)
     const avgStrokeRate = strokeRatesRef.current.length > 0
       ? strokeRatesRef.current.reduce((a, b) => a + b, 0) / strokeRatesRef.current.length
       : 0;
     
-    // Calculate average drive percent
+    // Calculate average drive percent (accumulated)
     const avgDrivePercent = drivePercentsRef.current.length > 0
       ? drivePercentsRef.current.reduce((a, b) => a + b, 0) / drivePercentsRef.current.length
       : 0;
     
-    // Calculate max speed
+    // Calculate max speed (accumulated)
     const maxSpeed = speedsRef.current.length > 0
       ? Math.max(...speedsRef.current)
       : 0;
     
-    // Calculate total distance (approximate using GPS samples)
+    // Calculate total distance - approximate from GPS samples in memory
+    // For accurate distance, would need all GPS samples, but this is sufficient for display
+    // Use current samples state snapshot to avoid stale closure issues
+    const currentSamples = samples; // Capture current value
     const gpsSamples = currentSamples.filter(s => s.type === 'gps');
     let totalDistance = 0;
     for (let i = 1; i < gpsSamples.length; i++) {
@@ -411,28 +458,44 @@ function App() {
       totalDistance,
       strokeCount: strokeRatesRef.current.length,
     };
-  }, []);
+  }, [samples]);
 
-  // Incremental save function (called every 5 seconds)
-  const performIncrementalSave = useCallback(async () => {
+  // Estimate binary size for samples (rough estimate: ~32 bytes per IMU sample, ~36 bytes per GPS sample)
+  const estimateBinarySize = useCallback((samples: Sample[]): number => {
+    let size = 128; // Header size
+    for (const sample of samples) {
+      if (sample.type === 'imu') {
+        size += 44; // V3 IMU sample size (with magnetometer)
+      } else if (sample.type === 'gps') {
+        size += 36; // GPS sample size
+      }
+    }
+    return size;
+  }, []);
+  
+  // Check if >= 32KB ready and write to flash
+  const checkAndWrite = useCallback(async () => {
     if (!isRunningRef.current || !currentSessionIdRef.current) {
       return;
     }
-
-    const currentSamples = samplesRef.current; // Use ref to get current samples
-    const currentSessionStartTime = sessionStartTimeRef.current;
     
-    if (currentSamples.length === 0 || !currentSessionStartTime) {
-      return; // Don't save if no samples yet or no start time
+    const readySamples = sampleBufferRef.current.getReadyItems();
+    if (readySamples.length === 0) return;
+    
+    const estimatedSize = estimateBinarySize(readySamples);
+    if (estimatedSize < BATCH_WRITE_SIZE_BYTES) {
+      return; // Not enough data yet
     }
-
+    
     try {
-      const metrics = calculateCurrentMetrics(currentSamples);
+      // Calculate metrics from accumulated refs
+      const metrics = calculateCurrentMetrics();
       
+      // Write ready samples to flash
       await saveSessionIncremental(currentSessionIdRef.current, {
-        sessionStartTime: currentSessionStartTime,
+        sessionStartTime: sessionStartTimeRef.current!,
         duration: metrics.duration,
-        samples: currentSamples,
+        samples: readySamples,
         avgStrokeRate: metrics.avgStrokeRate,
         avgDrivePercent: metrics.avgDrivePercent,
         maxSpeed: metrics.maxSpeed,
@@ -445,13 +508,16 @@ function App() {
         calibrationData,
       });
       
-      console.log(`[App] Incremental save completed: ${currentSamples.length} samples, ${metrics.duration}ms`);
+      // Write finished - reposition pointers
+      sampleBufferRef.current.clearReady();
+      
+      console.log(`[App] Wrote ${readySamples.length} samples (${(estimatedSize / 1024).toFixed(1)}KB) to flash`);
     } catch (error) {
-      console.error('[App] Failed to save incrementally:', error);
-      // Don't throw - we'll retry on next interval
+      console.error('[App] Failed to write to flash:', error);
+      // Don't clear on error - will retry
     }
-  }, [saveSessionIncremental, calculateCurrentMetrics, settings, calibrationData]);
-
+  }, [saveSessionIncremental, calculateCurrentMetrics, settings, calibrationData, estimateBinarySize]);
+  
   // Start session
   const handleStart = useCallback(async () => {
     setIsRunning(true);
@@ -459,7 +525,8 @@ function App() {
     setSessionStartTime(startTime);
     sessionStartTimeRef.current = startTime;
     setSamples([]);
-    samplesRef.current = [];
+    setTotalSampleCount(0);
+    sampleBufferRef.current.clear();
     
     // Create initial session ID
     const sessionId = `session_${startTime}_${Math.random().toString(36).substr(2, 9)}`;
@@ -488,46 +555,40 @@ function App() {
     setDrivePercent(0);
     setFusedVelocity(0);
     
-    // Start incremental save interval (every 5 seconds)
-    saveIntervalRef.current = window.setInterval(() => {
-      performIncrementalSave();
-    }, 5000);
+    // Start write check interval (every 1 second) - check if >= 32KB ready
+    writeCheckIntervalRef.current = window.setInterval(() => {
+      checkAndWrite();
+    }, 1000);
     
     console.log(`[App] Recording started with session ID: ${sessionId}`);
-  }, [performIncrementalSave]);
+  }, [checkAndWrite]);
 
   // Stop session and save
   const handleStop = useCallback(async () => {
     setIsRunning(false);
     lastIMUTimeRef.current = null;
     
-    // Clear incremental save interval
-    if (saveIntervalRef.current !== null) {
-      clearInterval(saveIntervalRef.current);
-      saveIntervalRef.current = null;
+    // Clear write check interval
+    if (writeCheckIntervalRef.current !== null) {
+      clearInterval(writeCheckIntervalRef.current);
+      writeCheckIntervalRef.current = null;
     }
     
     // Mark session as inactive (allows app updates)
     sessionStorage.removeItem('wrc_recording_active');
     
-    // Calculate session statistics
-    const metrics = calculateCurrentMetrics(samples);
-    
-    // Final save - use incremental save if session ID exists, otherwise create new
-    if (samples.length > 0) {
+    // Final save - write any remaining samples in buffer
+    if (currentSessionIdRef.current) {
       try {
-        // Debug: Count orientation samples before saving
-        const orientationSamples = samples.filter(s => s.type === 'imu' && (s.alpha !== undefined || s.beta !== undefined || s.gamma !== undefined));
-        const imuOnlySamples = samples.filter(s => s.type === 'imu' && (s.ax !== undefined || s.gx !== undefined));
-        const saveMsg = `[App] Final save: ${samples.length} total samples, ${orientationSamples.length} orientation samples, ${imuOnlySamples.length} IMU samples`;
-        console.log(saveMsg);
-        console.error(saveMsg);
-        
-        if (currentSessionIdRef.current) {
-          // Update existing session with final data
+        const remainingSamples = sampleBufferRef.current.getReadyItems();
+        if (remainingSamples.length > 0) {
+          // Calculate final metrics from accumulated refs
+          const metrics = calculateCurrentMetrics();
+          
+          // Write final samples
           await saveSessionIncremental(currentSessionIdRef.current, {
             duration: metrics.duration,
-            samples,
+            samples: remainingSamples,
             sessionStartTime: sessionStartTime!,
             avgStrokeRate: metrics.avgStrokeRate,
             avgDrivePercent: metrics.avgDrivePercent,
@@ -540,34 +601,51 @@ function App() {
             finishThreshold: settings.finishThreshold,
             calibrationData,
           });
-          console.log('Session updated successfully!');
-        } else {
-          // Fallback: create new session (shouldn't happen normally)
-          await saveSession({
-            duration: metrics.duration,
-            samples,
-            sessionStartTime: sessionStartTime!,
-            avgStrokeRate: metrics.avgStrokeRate,
-            avgDrivePercent: metrics.avgDrivePercent,
-            maxSpeed: metrics.maxSpeed,
-            totalDistance: metrics.totalDistance,
-            strokeCount: metrics.strokeCount,
-            phoneOrientation: settings.phoneOrientation,
-            demoMode: settings.demoMode,
-            catchThreshold: settings.catchThreshold,
-            finishThreshold: settings.finishThreshold,
-            calibrationData,
-          });
+          
+          // Reposition pointers
+          sampleBufferRef.current.clearReady();
+          
+          console.log(`[App] Final save completed: wrote ${remainingSamples.length} samples`);
+        }
+      } catch (error) {
+        console.error('Failed to save session:', error);
+      } finally {
+        // Clear session ID and buffers
+        currentSessionIdRef.current = null;
+        sampleBufferRef.current.clear();
+        setTotalSampleCount(0);
+      }
+    } else {
+      // Fallback: create new session if no session ID (shouldn't happen normally)
+      try {
+        const allSamples = sampleBufferRef.current.getAllItems();
+        if (allSamples.length > 0) {
+          const metrics = calculateCurrentMetrics();
+        await saveSession({
+          duration: metrics.duration,
+          samples: allSamples,
+          sessionStartTime: sessionStartTime!,
+          avgStrokeRate: metrics.avgStrokeRate,
+          avgDrivePercent: metrics.avgDrivePercent,
+          maxSpeed: metrics.maxSpeed,
+          totalDistance: metrics.totalDistance,
+          strokeCount: metrics.strokeCount,
+          phoneOrientation: settings.phoneOrientation,
+          demoMode: settings.demoMode,
+          catchThreshold: settings.catchThreshold,
+          finishThreshold: settings.finishThreshold,
+          calibrationData,
+        });
           console.log('Session saved successfully!');
         }
       } catch (error) {
         console.error('Failed to save session:', error);
       } finally {
-        // Clear session ID
-        currentSessionIdRef.current = null;
+        sampleBufferRef.current.clear();
+        setTotalSampleCount(0);
       }
     }
-  }, [samples, sessionStartTime, saveSession, saveSessionIncremental, calculateCurrentMetrics, calibrationData, settings]);
+  }, [sessionStartTime, saveSessionIncremental, calculateCurrentMetrics, calibrationData, settings]);
 
 
   const splitTime = convertToSplitTime(fusedVelocity);
@@ -598,7 +676,7 @@ function App() {
           strokeRate={strokeRate}
           drivePercent={drivePercent}
           splitTime={splitTime}
-          sampleCount={samples.length}
+          sampleCount={totalSampleCount}
         />
 
         {!settings.disablePlots && (
