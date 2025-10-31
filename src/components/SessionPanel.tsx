@@ -31,6 +31,43 @@ export function SessionPanel({
   const [exportingId, setExportingId] = useState<string | null>(null);
   const [sessionVersions, setSessionVersions] = useState<Record<string, number>>({});
 
+  // Helper function to detect file format version from binary data
+  const detectVersion = (buffer: ArrayBuffer): number => {
+    const view = new DataView(buffer);
+    let magic = '';
+    for (let i = 0; i < 16; i++) {
+      const char = view.getUint8(i);
+      if (char !== 0) magic += String.fromCharCode(char);
+    }
+    if (magic.startsWith('WRC_COACH_V3')) return 3;
+    if (magic.startsWith('WRC_COACH_V2')) return 2;
+    if (magic.startsWith('WRC_COACH_V1')) return 1;
+    return 0; // Unknown
+  };
+
+  // Load versions for all sessions when panel opens
+  // NOTE: This hook must be called BEFORE any early returns to follow Rules of Hooks
+  useEffect(() => {
+    if (!isOpen || sessions.length === 0) return;
+    
+    const loadVersions = async () => {
+      const versions: Record<string, number> = {};
+      for (const session of sessions) {
+        try {
+          const buffer = await getSessionBinary(session.id);
+          if (buffer) {
+            versions[session.id] = detectVersion(buffer);
+          }
+        } catch (error) {
+          console.error(`Failed to detect version for session ${session.id}:`, error);
+        }
+      }
+      setSessionVersions(versions);
+    };
+    
+    loadVersions();
+  }, [isOpen, sessions, getSessionBinary]);
+
   if (!isOpen) return null;
 
   const handleExport = async (session: SessionMetadataStorage) => {
@@ -151,42 +188,6 @@ export function SessionPanel({
     }
     return `${bytes} B`;
   };
-
-  // Helper function to detect file format version from binary data
-  const detectVersion = (buffer: ArrayBuffer): number => {
-    const view = new DataView(buffer);
-    let magic = '';
-    for (let i = 0; i < 16; i++) {
-      const char = view.getUint8(i);
-      if (char !== 0) magic += String.fromCharCode(char);
-    }
-    if (magic.startsWith('WRC_COACH_V3')) return 3;
-    if (magic.startsWith('WRC_COACH_V2')) return 2;
-    if (magic.startsWith('WRC_COACH_V1')) return 1;
-    return 0; // Unknown
-  };
-
-  // Load versions for all sessions when panel opens
-  useEffect(() => {
-    if (!isOpen || sessions.length === 0) return;
-    
-    const loadVersions = async () => {
-      const versions: Record<string, number> = {};
-      for (const session of sessions) {
-        try {
-          const buffer = await getSessionBinary(session.id);
-          if (buffer) {
-            versions[session.id] = detectVersion(buffer);
-          }
-        } catch (error) {
-          console.error(`Failed to detect version for session ${session.id}:`, error);
-        }
-      }
-      setSessionVersions(versions);
-    };
-    
-    loadVersions();
-  }, [isOpen, sessions, getSessionBinary]);
 
   const sortedSessions = [...sessions].sort((a, b) => b.timestamp - a.timestamp);
 
