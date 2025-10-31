@@ -50,9 +50,15 @@ function App() {
   const { applyCalibration, isCalibrated, calibrationData } = useCalibration();
   const { sessions, isLoading, saveSession, deleteSession, clearAllSessions, getSessionBinary } = useSessionStorage();
   const [isRunning, setIsRunning] = useState(false);
+  const isRunningRef = useRef(false); // Ref to track isRunning for callbacks
   const [samples, setSamples] = useState<Sample[]>([]);
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
   const [latestMotionData, setLatestMotionData] = useState<MotionData | null>(null);
+  
+  // Keep ref in sync with state
+  useEffect(() => {
+    isRunningRef.current = isRunning;
+  }, [isRunning]);
   
   // Metrics
   const [strokeRate, setStrokeRate] = useState(0);
@@ -220,15 +226,18 @@ function App() {
     // Track sensor status
     orientationLastTimeRef.current = performance.now();
     
+    // Use ref to check isRunning (avoids closure issues)
+    const currentlyRunning = isRunningRef.current;
+    
     // Log first few orientation samples for debugging (use console.error for better visibility in adb logcat)
     orientationSampleCountRef.current++;
     if (orientationSampleCountRef.current <= 5) {
-      const msg = `[Orientation] Sample ${orientationSampleCountRef.current}: alpha=${data.alpha.toFixed(1)}, beta=${data.beta.toFixed(1)}, gamma=${data.gamma.toFixed(1)}, isRunning=${isRunning}`;
+      const msg = `[Orientation] Sample ${orientationSampleCountRef.current}: alpha=${data.alpha.toFixed(1)}, beta=${data.beta.toFixed(1)}, gamma=${data.gamma.toFixed(1)}, isRunning=${currentlyRunning}`;
       console.log(msg);
       console.error(msg); // Also log as error for better visibility in adb logcat
     }
     
-    if (!isRunning) return;
+    if (!currentlyRunning) return;
 
     const sample: Sample = {
       t: data.t,
@@ -247,7 +256,7 @@ function App() {
       }
       return newSamples;
     });
-  }, [isRunning]);
+  }, []); // Empty deps - using ref instead
 
   // Handle GPS data
   const handlePosition = useCallback((data: GPSData) => {
@@ -280,7 +289,7 @@ function App() {
   useDeviceMotion({ onMotion: handleMotion, enabled: true, demoMode: settings.demoMode });
   
   // Device Orientation: Compass/heading (available on all phones via DeviceOrientationEvent)
-  const orientationActive = useDeviceOrientation({ onOrientation: handleOrientation, enabled: true });
+  const orientationActive = useDeviceOrientation({ onOrientation: handleOrientation, enabled: true, demoMode: settings.demoMode });
   
   // GPS: Event-driven, typically ~1 Hz (browser/device controlled)
   useGeolocation({ onPosition: handlePosition, enabled: isRunning, demoMode: settings.demoMode });
@@ -307,7 +316,7 @@ function App() {
         setSensorStatus({
           imu: true,
           gyro: true,
-          mag: false, // Magnetometer not simulated in demo mode
+          mag: orientationActive, // Orientation is now simulated in demo mode
           gps: isRunning, // GPS only active when recording in demo mode
         });
       } else {

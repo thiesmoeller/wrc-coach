@@ -10,19 +10,22 @@ export interface OrientationData {
 export interface UseDeviceOrientationOptions {
   enabled: boolean;
   onOrientation: (data: OrientationData) => void;
+  demoMode?: boolean;
 }
 
 /**
  * Hook to access device orientation/compass (available on all phones)
  * Uses DeviceOrientationEvent API which provides compass heading derived from magnetometer
  * Works on iOS Safari and Android Chrome without requiring Generic Sensor API
+ * Supports demo mode for testing without actual device orientation
  */
-export function useDeviceOrientation({ enabled, onOrientation }: UseDeviceOrientationOptions): boolean {
+export function useDeviceOrientation({ enabled, onOrientation, demoMode = false }: UseDeviceOrientationOptions): boolean {
   const callbackRef = useRef(onOrientation);
   const permissionRequestedRef = useRef(false);
   const [isActive, setIsActive] = useState(false);
   const hasReceivedDataRef = useRef(false);
   const timeoutRef = useRef<number | null>(null);
+  const demoIntervalRef = useRef<number | null>(null);
 
   callbackRef.current = onOrientation;
 
@@ -59,9 +62,77 @@ export function useDeviceOrientation({ enabled, onOrientation }: UseDeviceOrient
     if (!enabled) {
       setIsActive(false);
       hasReceivedDataRef.current = false;
+      // Clear demo interval if disabled
+      if (demoIntervalRef.current !== null) {
+        clearInterval(demoIntervalRef.current);
+        demoIntervalRef.current = null;
+      }
       return;
     }
 
+    // Demo mode: simulate orientation data
+    if (demoMode) {
+      // Clear any existing interval first
+      if (demoIntervalRef.current !== null) {
+        clearInterval(demoIntervalRef.current);
+        demoIntervalRef.current = null;
+      }
+      
+      // Simulate realistic orientation data
+      // Alpha (compass heading): slowly rotating around (0-360°)
+      // Beta (front-back tilt): slight variations during rowing motion
+      // Gamma (left-right tilt): boat roll during strokes
+      let alpha = 90; // Start facing east
+      let alphaDirection = 1; // Rotate slowly
+      let beta = 0; // Level
+      let gamma = 0; // No roll
+      
+      hasReceivedDataRef.current = false;
+      setIsActive(false);
+      
+      // Orientation updates at ~10 Hz (similar to real device)
+      const sampleRate = 10; // Hz
+      const dt = 1000 / sampleRate; // ms between samples
+      
+      demoIntervalRef.current = window.setInterval(() => {
+        const t = performance.now();
+        
+        // Slowly rotate compass heading (1 degree per second)
+        alpha += alphaDirection * (360 / (60 * sampleRate)); // 1 deg/sec
+        if (alpha >= 360) alpha -= 360;
+        if (alpha < 0) alpha += 360;
+        
+        // Simulate slight tilt variations (boat rocking)
+        const strokePhase = (t / 2400) % 1; // 2400ms = 25 SPM stroke period
+        beta = Math.sin(strokePhase * Math.PI * 2) * 2; // ±2° front-back tilt
+        gamma = Math.sin(strokePhase * Math.PI * 2 + Math.PI / 2) * 1.5; // ±1.5° left-right roll
+        
+        // Mark as active after first reading
+        if (!hasReceivedDataRef.current) {
+          hasReceivedDataRef.current = true;
+          setIsActive(true);
+          console.log('[DeviceOrientation] Demo mode: Compass is active');
+        }
+        
+        callbackRef.current({
+          t,
+          alpha,
+          beta,
+          gamma,
+        });
+      }, dt);
+      
+      return () => {
+        if (demoIntervalRef.current !== null) {
+          clearInterval(demoIntervalRef.current);
+          demoIntervalRef.current = null;
+        }
+        setIsActive(false);
+        hasReceivedDataRef.current = false;
+      };
+    }
+
+    // Real device orientation mode
     // Check if DeviceOrientationEvent is available
     if (typeof DeviceOrientationEvent === 'undefined') {
       console.log('[DeviceOrientation] Not supported on this platform');
@@ -123,7 +194,7 @@ export function useDeviceOrientation({ enabled, onOrientation }: UseDeviceOrient
       setIsActive(false);
       hasReceivedDataRef.current = false;
     };
-  }, [enabled, handleOrientation]);
+  }, [enabled, demoMode, handleOrientation]);
 
   return isActive;
 }
