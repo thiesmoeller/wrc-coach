@@ -7,7 +7,7 @@ import { SessionPanel } from './components/SessionPanel';
 import { PolarPlot } from './components/PolarPlot';
 import { StabilityPlot } from './components/StabilityPlot';
 import { UpdateNotification } from './components/UpdateNotification';
-import { useSettings, useDeviceMotion, useGeolocation, useWakeLock, useCalibration, useSessionStorage, useMagnetometer, type MotionData, type GPSData, type MagnetometerData } from './hooks';
+import { useSettings, useDeviceMotion, useDeviceOrientation, useGeolocation, useWakeLock, useCalibration, useSessionStorage, type MotionData, type GPSData, type OrientationData } from './hooks';
 import {
   ComplementaryFilter,
   KalmanFilterGPS,
@@ -31,6 +31,9 @@ interface Sample {
   mx?: number;
   my?: number;
   mz?: number;
+  alpha?: number; // Compass heading from DeviceOrientationEvent
+  beta?: number;  // Front-back tilt
+  gamma?: number; // Left-right tilt
   lat?: number;
   lon?: number;
   speed?: number;
@@ -64,8 +67,8 @@ function App() {
   // Sensor status tracking
   const imuLastTimeRef = useRef<number | null>(null);
   const gyroLastTimeRef = useRef<number | null>(null);
-  const magLastTimeRef = useRef<number | null>(null);
-  const magActivatedTimeRef = useRef<number | null>(null);
+  const orientationLastTimeRef = useRef<number | null>(null);
+  const orientationActivatedTimeRef = useRef<number | null>(null);
   const gpsLastTimeRef = useRef<number | null>(null);
   const [sensorStatus, setSensorStatus] = useState({
     imu: false,
@@ -209,19 +212,19 @@ function App() {
     setSamples((prev) => [...prev, sample]);
   }, [isRunning, settings.phoneOrientation, isCalibrated, applyCalibration]);
 
-  // Handle Magnetometer data (Android/Chrome only)
-  const handleMagnetometer = useCallback((data: MagnetometerData) => {
+  // Handle Device Orientation data (compass/heading - available on all phones)
+  const handleOrientation = useCallback((data: OrientationData) => {
     // Track sensor status
-    magLastTimeRef.current = performance.now();
+    orientationLastTimeRef.current = performance.now();
     
     if (!isRunning) return;
 
     const sample: Sample = {
       t: data.t,
       type: 'imu',
-      mx: data.mx,
-      my: data.my,
-      mz: data.mz,
+      alpha: data.alpha, // Compass heading (0-360°)
+      beta: data.beta,   // Front-back tilt
+      gamma: data.gamma, // Left-right tilt
     };
     setSamples((prev) => [...prev, sample]);
   }, [isRunning]);
@@ -256,21 +259,21 @@ function App() {
   // IMU/Gyro: Event-driven, typically 50-100 Hz (device dependent, includes 60 Hz)
   useDeviceMotion({ onMotion: handleMotion, enabled: true, demoMode: settings.demoMode });
   
-  // Magnetometer: 10 Hz (Chrome limits to 10Hz max for privacy reasons)
-  const magnetometerActive = useMagnetometer({ onMagnetometer: handleMagnetometer, enabled: true, frequency: 10 });
+  // Device Orientation: Compass/heading (available on all phones via DeviceOrientationEvent)
+  const orientationActive = useDeviceOrientation({ onOrientation: handleOrientation, enabled: true });
   
   // GPS: Event-driven, typically ~1 Hz (browser/device controlled)
   useGeolocation({ onPosition: handlePosition, enabled: isRunning, demoMode: settings.demoMode });
 
-  // Track when magnetometer becomes active
+  // Track when device orientation becomes active
   useEffect(() => {
-    if (magnetometerActive && magActivatedTimeRef.current === null) {
-      magActivatedTimeRef.current = performance.now();
-    } else if (!magnetometerActive) {
-      magActivatedTimeRef.current = null;
-      magLastTimeRef.current = null;
+    if (orientationActive && orientationActivatedTimeRef.current === null) {
+      orientationActivatedTimeRef.current = performance.now();
+    } else if (!orientationActive) {
+      orientationActivatedTimeRef.current = null;
+      orientationLastTimeRef.current = null;
     }
-  }, [magnetometerActive]);
+  }, [orientationActive]);
 
   // Update sensor status periodically
   useEffect(() => {
@@ -288,25 +291,25 @@ function App() {
           gps: isRunning, // GPS only active when recording in demo mode
         });
       } else {
-        // For magnetometer: show active if sensor is running AND either:
+        // For orientation/compass: show active if sensor is running AND either:
         // - we received data recently (within timeout)
         // - sensor just activated and we're within grace period (even without data yet)
-        const magActive = magnetometerActive && (
-          (magLastTimeRef.current !== null && (now - magLastTimeRef.current) < TIMEOUT_MS) ||
-          (magActivatedTimeRef.current !== null && (now - magActivatedTimeRef.current) < ACTIVATION_GRACE_MS)
+        const orientationActiveStatus = orientationActive && (
+          (orientationLastTimeRef.current !== null && (now - orientationLastTimeRef.current) < TIMEOUT_MS) ||
+          (orientationActivatedTimeRef.current !== null && (now - orientationActivatedTimeRef.current) < ACTIVATION_GRACE_MS)
         );
         
         setSensorStatus({
           imu: imuLastTimeRef.current !== null && (now - imuLastTimeRef.current) < TIMEOUT_MS,
           gyro: gyroLastTimeRef.current !== null && (now - gyroLastTimeRef.current) < TIMEOUT_MS,
-          mag: magActive,
+          mag: orientationActiveStatus, // Using orientation/compass for mag indicator
           gps: gpsLastTimeRef.current !== null && (now - gpsLastTimeRef.current) < TIMEOUT_MS,
         });
       }
     }, 500); // Check every 500ms
     
     return () => clearInterval(interval);
-  }, [settings.demoMode, isRunning, magnetometerActive]);
+  }, [settings.demoMode, isRunning, orientationActive]);
 
   // Start session
   const handleStart = useCallback(() => {

@@ -47,7 +47,7 @@ export function Header({ isRecording, isDemoMode, sensorStatus, onMenuClick }: H
           <span className={`sensor-indicator ${sensorStatus.gyro ? 'active' : 'inactive'}`} title="Gyroscope">
             GYRO
           </span>
-          <span className={`sensor-indicator ${sensorStatus.mag ? 'active' : 'inactive'}`} title="Magnetometer">
+          <span className={`sensor-indicator ${sensorStatus.mag ? 'active' : 'inactive'}`} title="Compass/Heading (Device Orientation)">
             MAG
           </span>
           <span className={`sensor-indicator ${sensorStatus.gps ? 'active' : 'inactive'}`} title="GPS">

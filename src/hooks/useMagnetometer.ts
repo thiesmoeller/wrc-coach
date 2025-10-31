@@ -21,6 +21,8 @@ export interface UseMagnetometerOptions {
 export function useMagnetometer({ enabled, frequency = 60, onMagnetometer }: UseMagnetometerOptions): boolean {
   const sensorRef = useRef<any | null>(null);
   const permissionRequestedRef = useRef(false);
+  const timeoutRef = useRef<number | null>(null);
+  const hasReceivedDataRef = useRef(false);
   const [isActive, setIsActive] = useState(false);
 
   useEffect(() => {
@@ -31,12 +33,26 @@ export function useMagnetometer({ enabled, frequency = 60, onMagnetometer }: Use
 
     // Feature-detect Magnetometer (Generic Sensor API). Not available on iOS Safari.
     const MagnetometerCtor: any = (window as any).Magnetometer;
+    
+    console.log('[Magnetometer] Feature detection:', {
+      Magnetometer: typeof MagnetometerCtor !== 'undefined',
+      userAgent: navigator.userAgent,
+      platform: navigator.platform,
+    });
+    
     if (!MagnetometerCtor) {
-      console.log('[Magnetometer] Not supported on this platform');
+      console.log('[Magnetometer] Generic Sensor API not available on this platform');
+      console.log('[Magnetometer] This may be due to:');
+      console.log('  - Browser not supporting Generic Sensor API');
+      console.log('  - Device not having a magnetometer');
+      console.log('  - Chrome version too old (< 67)');
       setIsActive(false);
       return; // no-op if unsupported
     }
 
+    // Reset state for new setup
+    hasReceivedDataRef.current = false;
+    
     async function setupMagnetometer() {
       try {
         // Request permission if needed (Generic Sensor API may require permissions)
@@ -73,7 +89,6 @@ export function useMagnetometer({ enabled, frequency = 60, onMagnetometer }: Use
         sensorRef.current = sensor;
         
         let sampleCount = 0;
-        let hasReceivedData = false;
 
         sensor.addEventListener('reading', () => {
           const t = performance.now();
@@ -82,10 +97,15 @@ export function useMagnetometer({ enabled, frequency = 60, onMagnetometer }: Use
           const mz = Number.isFinite(sensor.z) ? sensor.z : 0;
           
           // Mark as active only after we receive actual data
-          if (!hasReceivedData) {
-            hasReceivedData = true;
+          if (!hasReceivedDataRef.current) {
+            hasReceivedDataRef.current = true;
             setIsActive(true);
             console.log('[Magnetometer] First reading received, sensor is active');
+            // Clear timeout if set
+            if (timeoutRef.current !== null) {
+              clearTimeout(timeoutRef.current);
+              timeoutRef.current = null;
+            }
           }
           
           // Log first few samples for debugging
@@ -100,6 +120,12 @@ export function useMagnetometer({ enabled, frequency = 60, onMagnetometer }: Use
         sensor.addEventListener('error', (event: any) => {
           const error = event?.error || event;
           console.error('[Magnetometer] Sensor error:', error);
+          console.error('[Magnetometer] Error details:', {
+            name: error?.name,
+            message: error?.message,
+            code: error?.code,
+            stack: error?.stack,
+          });
           setIsActive(false);
           
           // Common error: permission denied
@@ -110,20 +136,41 @@ export function useMagnetometer({ enabled, frequency = 60, onMagnetometer }: Use
             console.error('  3. User has granted sensor permissions');
           } else if (error?.name === 'NotReadableError') {
             console.error('[Magnetometer] Sensor not readable. May be in use by another app or hardware issue.');
+          } else if (error?.name === 'NotSupportedError') {
+            console.error('[Magnetometer] Sensor not supported. Device may not have a magnetometer.');
+          } else {
+            console.error('[Magnetometer] Unknown error. Check browser console for details.');
           }
         });
 
         sensor.addEventListener('activate', () => {
-          console.log('[Magnetometer] Sensor activated');
+          console.log('[Magnetometer] Sensor activated - waiting for first reading...');
           // Don't mark as active yet - wait for first reading
         });
 
         try {
           sensor.start();
           console.log(`[Magnetometer] Start requested (frequency: ${safeFrequency}Hz)`);
-          // Don't mark as active yet - wait for first reading or activation event
+          console.log('[Magnetometer] Waiting for sensor activation and first reading...');
+          
+          // Set a timeout to detect if sensor starts but never sends data
+          timeoutRef.current = window.setTimeout(() => {
+            if (!hasReceivedDataRef.current) {
+              console.warn('[Magnetometer] Sensor started but no readings received after 5 seconds');
+              console.warn('[Magnetometer] This may indicate:');
+              console.warn('  - Device does not have a magnetometer');
+              console.warn('  - Sensor is disabled in device settings');
+              console.warn('  - Chrome does not expose magnetometer on this device');
+              console.warn('  - Permissions issue preventing sensor activation');
+            }
+          }, 5000);
         } catch (startErr: any) {
           console.error('[Magnetometer] Failed to start sensor:', startErr);
+          console.error('[Magnetometer] Error details:', {
+            name: startErr?.name,
+            message: startErr?.message,
+            stack: startErr?.stack,
+          });
           setIsActive(false);
         }
       } catch (err: any) {
@@ -144,6 +191,10 @@ export function useMagnetometer({ enabled, frequency = 60, onMagnetometer }: Use
 
     return () => {
       setIsActive(false);
+      if (timeoutRef.current !== null) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
       if (sensorRef.current) {
         try {
           sensorRef.current.stop();
