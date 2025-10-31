@@ -92,14 +92,11 @@ export class IndexedDBStorage {
   }
   
   /**
-   * Save a session to IndexedDB
+   * Process samples and create binary data (helper method)
    */
-  async saveSession(sessionData: Omit<SessionFullData, 'id' | 'timestamp' | 'sampleCount' | 'dataSize'>): Promise<SessionMetadataStorage> {
-    const db = await this.ensureDB();
-    
-    const id = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const timestamp = Date.now();
-    
+  private processSamplesToBinary(
+    sessionData: Omit<SessionFullData, 'id' | 'timestamp' | 'sampleCount' | 'dataSize'>
+  ): { binaryData: ArrayBuffer; imuSamples: IMUSample[]; gpsSamples: GPSSample[] } {
     // Separate IMU and GPS samples, merging magnetometer data with IMU samples by timestamp
     const imuSamples: IMUSample[] = [];
     const gpsSamples: GPSSample[] = [];
@@ -264,7 +261,7 @@ export class IndexedDBStorage {
     
     // Debug: Count how many samples have orientation/magnetometer data
     const samplesWithOrientation = imuSamples.filter(s => s.mx !== undefined || s.my !== undefined || s.mz !== undefined).length;
-    const msg = `[Storage] Saving session: ${imuSamples.length} IMU samples, ${samplesWithOrientation} with orientation/magnetometer data`;
+    const msg = `[Storage] Processing samples: ${imuSamples.length} IMU samples, ${samplesWithOrientation} with orientation/magnetometer data`;
     console.log(msg);
     console.error(msg); // Also log as error for better visibility in adb logcat
     
@@ -279,6 +276,20 @@ export class IndexedDBStorage {
     };
     
     const binaryData = this.writer.encode(imuSamples, gpsSamples, metadata);
+    
+    return { binaryData, imuSamples, gpsSamples };
+  }
+  
+  /**
+   * Save a session to IndexedDB
+   */
+  async saveSession(sessionData: Omit<SessionFullData, 'id' | 'timestamp' | 'sampleCount' | 'dataSize'>): Promise<SessionMetadataStorage> {
+    const db = await this.ensureDB();
+    
+    const id = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const timestamp = Date.now();
+    
+    const { binaryData } = this.processSamplesToBinary(sessionData);
     
     // Create storage object
     const storageData = {
@@ -314,7 +325,73 @@ export class IndexedDBStorage {
       
       request.onerror = () => {
         console.error('Error saving session:', request.error);
-        reject(request.error);
+        const error = request.error;
+        // Check for quota exceeded error
+        if (error && (error.name === 'QuotaExceededError' || (error as any).code === 22)) {
+          reject(new Error('Storage full! Please delete some sessions.'));
+        } else {
+          reject(error);
+        }
+      };
+    });
+  }
+  
+  /**
+   * Update an existing session (for incremental saves during recording)
+   */
+  async updateSession(
+    sessionId: string,
+    sessionData: Omit<SessionFullData, 'id' | 'timestamp' | 'sampleCount' | 'dataSize'>
+  ): Promise<SessionMetadataStorage> {
+    const db = await this.ensureDB();
+    
+    const { binaryData } = this.processSamplesToBinary(sessionData);
+    
+    // Get existing session to preserve timestamp
+    const existingSession = await this.getSession(sessionId);
+    const timestamp = existingSession?.timestamp || Date.now();
+    
+    // Create storage object with updated data
+    const storageData = {
+      id: sessionId,
+      timestamp,
+      sessionStartTime: sessionData.sessionStartTime,
+      duration: sessionData.duration,
+      avgStrokeRate: sessionData.avgStrokeRate,
+      avgDrivePercent: sessionData.avgDrivePercent,
+      maxSpeed: sessionData.maxSpeed,
+      totalDistance: sessionData.totalDistance,
+      strokeCount: sessionData.strokeCount,
+      phoneOrientation: sessionData.phoneOrientation,
+      demoMode: sessionData.demoMode,
+      catchThreshold: sessionData.catchThreshold,
+      finishThreshold: sessionData.finishThreshold,
+      hasCalibrationData: !!sessionData.calibrationData,
+      sampleCount: sessionData.samples.length,
+      dataSize: binaryData.byteLength,
+      binaryData, // Store as ArrayBuffer
+    };
+    
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_NAME], 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.put(storageData); // Use put to update existing or create new
+      
+      request.onsuccess = () => {
+        // Return metadata only (without binaryData)
+        const { binaryData, ...metadata } = storageData;
+        resolve(metadata);
+      };
+      
+      request.onerror = () => {
+        console.error('Error updating session:', request.error);
+        const error = request.error;
+        // Check for quota exceeded error
+        if (error && (error.name === 'QuotaExceededError' || (error as any).code === 22)) {
+          reject(new Error('Storage full! Please delete some sessions.'));
+        } else {
+          reject(error);
+        }
       };
     });
   }

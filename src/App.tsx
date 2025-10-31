@@ -48,17 +48,41 @@ interface Sample {
 function App() {
   const { settings, updateSettings, resetSettings } = useSettings();
   const { applyCalibration, isCalibrated, calibrationData } = useCalibration();
-  const { sessions, isLoading, saveSession, deleteSession, clearAllSessions, getSessionBinary } = useSessionStorage();
+  const { sessions, isLoading, saveSession, saveSessionIncremental, deleteSession, clearAllSessions, getSessionBinary } = useSessionStorage();
   const [isRunning, setIsRunning] = useState(false);
   const isRunningRef = useRef(false); // Ref to track isRunning for callbacks
   const [samples, setSamples] = useState<Sample[]>([]);
+  const samplesRef = useRef<Sample[]>([]); // Ref to track current samples for incremental saves
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
+  const sessionStartTimeRef = useRef<number | null>(null); // Ref to track session start time for incremental saves
   const [latestMotionData, setLatestMotionData] = useState<MotionData | null>(null);
+  const currentSessionIdRef = useRef<string | null>(null); // Track current session ID for incremental saves
+  const saveIntervalRef = useRef<number | null>(null); // Track interval for batch saves
+  
+  // Keep samples ref in sync with state
+  useEffect(() => {
+    samplesRef.current = samples;
+  }, [samples]);
+  
+  // Keep sessionStartTime ref in sync with state
+  useEffect(() => {
+    sessionStartTimeRef.current = sessionStartTime;
+  }, [sessionStartTime]);
   
   // Keep ref in sync with state
   useEffect(() => {
     isRunningRef.current = isRunning;
   }, [isRunning]);
+  
+  // Cleanup interval on unmount
+  useEffect(() => {
+    return () => {
+      if (saveIntervalRef.current !== null) {
+        clearInterval(saveIntervalRef.current);
+        saveIntervalRef.current = null;
+      }
+    };
+  }, []);
   
   // Metrics
   const [strokeRate, setStrokeRate] = useState(0);
@@ -340,11 +364,106 @@ function App() {
     return () => clearInterval(interval);
   }, [settings.demoMode, isRunning, orientationActive]);
 
+  // Helper function to calculate current session metrics
+  const calculateCurrentMetrics = useCallback((currentSamples: Sample[]) => {
+    const startTime = sessionStartTimeRef.current;
+    const duration = startTime ? Date.now() - startTime : 0;
+    
+    // Calculate average stroke rate from tracked strokes
+    const avgStrokeRate = strokeRatesRef.current.length > 0
+      ? strokeRatesRef.current.reduce((a, b) => a + b, 0) / strokeRatesRef.current.length
+      : 0;
+    
+    // Calculate average drive percent
+    const avgDrivePercent = drivePercentsRef.current.length > 0
+      ? drivePercentsRef.current.reduce((a, b) => a + b, 0) / drivePercentsRef.current.length
+      : 0;
+    
+    // Calculate max speed
+    const maxSpeed = speedsRef.current.length > 0
+      ? Math.max(...speedsRef.current)
+      : 0;
+    
+    // Calculate total distance (approximate using GPS samples)
+    const gpsSamples = currentSamples.filter(s => s.type === 'gps');
+    let totalDistance = 0;
+    for (let i = 1; i < gpsSamples.length; i++) {
+      const prev = gpsSamples[i - 1];
+      const curr = gpsSamples[i];
+      if (prev.lat && prev.lon && curr.lat && curr.lon) {
+        // Simple distance calculation (Haversine formula)
+        const R = 6371000; // Earth's radius in meters
+        const dLat = (curr.lat - prev.lat) * Math.PI / 180;
+        const dLon = (curr.lon - prev.lon) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(prev.lat * Math.PI / 180) * Math.cos(curr.lat * Math.PI / 180) *
+          Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        totalDistance += R * c;
+      }
+    }
+    
+    return {
+      duration,
+      avgStrokeRate,
+      avgDrivePercent,
+      maxSpeed,
+      totalDistance,
+      strokeCount: strokeRatesRef.current.length,
+    };
+  }, []);
+
+  // Incremental save function (called every 5 seconds)
+  const performIncrementalSave = useCallback(async () => {
+    if (!isRunningRef.current || !currentSessionIdRef.current) {
+      return;
+    }
+
+    const currentSamples = samplesRef.current; // Use ref to get current samples
+    const currentSessionStartTime = sessionStartTimeRef.current;
+    
+    if (currentSamples.length === 0 || !currentSessionStartTime) {
+      return; // Don't save if no samples yet or no start time
+    }
+
+    try {
+      const metrics = calculateCurrentMetrics(currentSamples);
+      
+      await saveSessionIncremental(currentSessionIdRef.current, {
+        sessionStartTime: currentSessionStartTime,
+        duration: metrics.duration,
+        samples: currentSamples,
+        avgStrokeRate: metrics.avgStrokeRate,
+        avgDrivePercent: metrics.avgDrivePercent,
+        maxSpeed: metrics.maxSpeed,
+        totalDistance: metrics.totalDistance,
+        strokeCount: metrics.strokeCount,
+        phoneOrientation: settings.phoneOrientation,
+        demoMode: settings.demoMode,
+        catchThreshold: settings.catchThreshold,
+        finishThreshold: settings.finishThreshold,
+        calibrationData,
+      });
+      
+      console.log(`[App] Incremental save completed: ${currentSamples.length} samples, ${metrics.duration}ms`);
+    } catch (error) {
+      console.error('[App] Failed to save incrementally:', error);
+      // Don't throw - we'll retry on next interval
+    }
+  }, [saveSessionIncremental, calculateCurrentMetrics, settings, calibrationData]);
+
   // Start session
-  const handleStart = useCallback(() => {
+  const handleStart = useCallback(async () => {
     setIsRunning(true);
-    setSessionStartTime(Date.now());
+    const startTime = Date.now();
+    setSessionStartTime(startTime);
+    sessionStartTimeRef.current = startTime;
     setSamples([]);
+    samplesRef.current = [];
+    
+    // Create initial session ID
+    const sessionId = `session_${startTime}_${Math.random().toString(36).substr(2, 9)}`;
+    currentSessionIdRef.current = sessionId;
     
     // Reset orientation sample counter for debugging
     orientationSampleCountRef.current = 0;
@@ -368,84 +487,87 @@ function App() {
     setStrokeRate(0);
     setDrivePercent(0);
     setFusedVelocity(0);
-  }, []);
+    
+    // Start incremental save interval (every 5 seconds)
+    saveIntervalRef.current = window.setInterval(() => {
+      performIncrementalSave();
+    }, 5000);
+    
+    console.log(`[App] Recording started with session ID: ${sessionId}`);
+  }, [performIncrementalSave]);
 
   // Stop session and save
   const handleStop = useCallback(async () => {
     setIsRunning(false);
     lastIMUTimeRef.current = null;
     
+    // Clear incremental save interval
+    if (saveIntervalRef.current !== null) {
+      clearInterval(saveIntervalRef.current);
+      saveIntervalRef.current = null;
+    }
+    
     // Mark session as inactive (allows app updates)
     sessionStorage.removeItem('wrc_recording_active');
     
     // Calculate session statistics
-    const duration = sessionStartTime ? Date.now() - sessionStartTime : 0;
+    const metrics = calculateCurrentMetrics(samples);
     
-    // Calculate average stroke rate
-    const avgStrokeRate = strokeRatesRef.current.length > 0
-      ? strokeRatesRef.current.reduce((a, b) => a + b, 0) / strokeRatesRef.current.length
-      : 0;
-    
-    // Calculate average drive percent
-    const avgDrivePercent = drivePercentsRef.current.length > 0
-      ? drivePercentsRef.current.reduce((a, b) => a + b, 0) / drivePercentsRef.current.length
-      : 0;
-    
-    // Calculate max speed
-    const maxSpeed = speedsRef.current.length > 0
-      ? Math.max(...speedsRef.current)
-      : 0;
-    
-    // Calculate total distance (approximate using GPS samples)
-    const gpsSamples = samples.filter(s => s.type === 'gps');
-    let totalDistance = 0;
-    for (let i = 1; i < gpsSamples.length; i++) {
-      const prev = gpsSamples[i - 1];
-      const curr = gpsSamples[i];
-      if (prev.lat && prev.lon && curr.lat && curr.lon) {
-        // Simple distance calculation (Haversine formula)
-        const R = 6371000; // Earth's radius in meters
-        const dLat = (curr.lat - prev.lat) * Math.PI / 180;
-        const dLon = (curr.lon - prev.lon) * Math.PI / 180;
-        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-          Math.cos(prev.lat * Math.PI / 180) * Math.cos(curr.lat * Math.PI / 180) *
-          Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        totalDistance += R * c;
-      }
-    }
-    
-    // Save session if we have data
+    // Final save - use incremental save if session ID exists, otherwise create new
     if (samples.length > 0) {
       try {
         // Debug: Count orientation samples before saving
         const orientationSamples = samples.filter(s => s.type === 'imu' && (s.alpha !== undefined || s.beta !== undefined || s.gamma !== undefined));
         const imuOnlySamples = samples.filter(s => s.type === 'imu' && (s.ax !== undefined || s.gx !== undefined));
-        const saveMsg = `[App] Saving session: ${samples.length} total samples, ${orientationSamples.length} orientation samples, ${imuOnlySamples.length} IMU samples`;
+        const saveMsg = `[App] Final save: ${samples.length} total samples, ${orientationSamples.length} orientation samples, ${imuOnlySamples.length} IMU samples`;
         console.log(saveMsg);
         console.error(saveMsg);
         
-        await saveSession({
-          duration,
-          samples,
-          sessionStartTime: sessionStartTime!,
-          avgStrokeRate,
-          avgDrivePercent,
-          maxSpeed,
-          totalDistance,
-          strokeCount: strokeRatesRef.current.length,
-          phoneOrientation: settings.phoneOrientation,
-          demoMode: settings.demoMode,
-          catchThreshold: settings.catchThreshold,
-          finishThreshold: settings.finishThreshold,
-          calibrationData,
-        });
-        console.log('Session saved successfully!');
+        if (currentSessionIdRef.current) {
+          // Update existing session with final data
+          await saveSessionIncremental(currentSessionIdRef.current, {
+            duration: metrics.duration,
+            samples,
+            sessionStartTime: sessionStartTime!,
+            avgStrokeRate: metrics.avgStrokeRate,
+            avgDrivePercent: metrics.avgDrivePercent,
+            maxSpeed: metrics.maxSpeed,
+            totalDistance: metrics.totalDistance,
+            strokeCount: metrics.strokeCount,
+            phoneOrientation: settings.phoneOrientation,
+            demoMode: settings.demoMode,
+            catchThreshold: settings.catchThreshold,
+            finishThreshold: settings.finishThreshold,
+            calibrationData,
+          });
+          console.log('Session updated successfully!');
+        } else {
+          // Fallback: create new session (shouldn't happen normally)
+          await saveSession({
+            duration: metrics.duration,
+            samples,
+            sessionStartTime: sessionStartTime!,
+            avgStrokeRate: metrics.avgStrokeRate,
+            avgDrivePercent: metrics.avgDrivePercent,
+            maxSpeed: metrics.maxSpeed,
+            totalDistance: metrics.totalDistance,
+            strokeCount: metrics.strokeCount,
+            phoneOrientation: settings.phoneOrientation,
+            demoMode: settings.demoMode,
+            catchThreshold: settings.catchThreshold,
+            finishThreshold: settings.finishThreshold,
+            calibrationData,
+          });
+          console.log('Session saved successfully!');
+        }
       } catch (error) {
         console.error('Failed to save session:', error);
+      } finally {
+        // Clear session ID
+        currentSessionIdRef.current = null;
       }
     }
-  }, [samples, sessionStartTime, saveSession, calibrationData, settings]);
+  }, [samples, sessionStartTime, saveSession, saveSessionIncremental, calculateCurrentMetrics, calibrationData, settings]);
 
 
   const splitTime = convertToSplitTime(fusedVelocity);

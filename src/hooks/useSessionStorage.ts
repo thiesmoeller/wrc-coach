@@ -120,7 +120,57 @@ export function useSessionStorage() {
       return { ...metadata, samples: [], calibrationData: undefined };
     } catch (error) {
       console.error('Error saving session:', error);
-      alert('Error saving session. Please try again or delete old sessions.');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      if (errorMessage.includes('Storage full')) {
+        alert('Storage full! Please delete some sessions.');
+      } else {
+        alert('Error saving session. Please try again or delete old sessions.');
+      }
+      throw error;
+    }
+  }, []);
+
+  const saveSessionIncremental = useCallback(async (
+    sessionId: string,
+    sessionData: Omit<SessionData, 'id' | 'timestamp'>
+  ) => {
+    try {
+      const metadata = await storage.updateSession(sessionId, {
+        sessionStartTime: sessionData.sessionStartTime,
+        duration: sessionData.duration,
+        samples: sessionData.samples,
+        avgStrokeRate: sessionData.avgStrokeRate,
+        avgDrivePercent: sessionData.avgDrivePercent,
+        maxSpeed: sessionData.maxSpeed,
+        totalDistance: sessionData.totalDistance,
+        strokeCount: sessionData.strokeCount,
+        phoneOrientation: sessionData.phoneOrientation,
+        demoMode: sessionData.demoMode,
+        catchThreshold: sessionData.catchThreshold,
+        finishThreshold: sessionData.finishThreshold,
+        calibrationData: sessionData.calibrationData,
+      });
+
+      // Update sessions list if this session already exists, otherwise add it
+      setSessions(prev => {
+        const existingIndex = prev.findIndex(s => s.id === sessionId);
+        if (existingIndex >= 0) {
+          const updated = [...prev];
+          updated[existingIndex] = metadata;
+          return updated;
+        } else {
+          return [...prev, metadata];
+        }
+      });
+      
+      return metadata;
+    } catch (error) {
+      console.error('Error saving session incrementally:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      if (errorMessage.includes('Storage full')) {
+        // Don't show alert during incremental saves - just log
+        console.warn('Storage full during incremental save. User should delete old sessions.');
+      }
       throw error;
     }
   }, []);
@@ -174,6 +224,7 @@ export function useSessionStorage() {
     sessions,
     isLoading,
     saveSession,
+    saveSessionIncremental,
     deleteSession,
     clearAllSessions,
     getSession,
