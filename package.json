@@ -1,6 +1,6 @@
 {
   "name": "wrc-coach",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "description": "A modern Progressive Web App (PWA) for real-time rowing performance feedback at WRC (est. 1895). Monitor your crew's stroke cycle, timing, and boat stability using only your smartphone's built-in sensors.",
   "type": "module",
   "main": "dist/index.js",
