@@ -6,6 +6,8 @@ export interface AppSettings {
   catchThreshold: number;
   finishThreshold: number;
   sampleRate: number;
+  /** When true, do not render any plots (reduces CPU/memory) */
+  disablePlots: boolean;
   demoMode: boolean;
   phoneOrientation: 'rower' | 'coxswain';
 }
@@ -16,6 +18,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   catchThreshold: 0.6,
   finishThreshold: -0.3,
   sampleRate: 20,
+  disablePlots: false,
   demoMode: false,
   phoneOrientation: 'rower',
 };

@@ -12,6 +12,7 @@
     "test:ui": "vitest --ui",
     "test:run": "vitest run",
     "version:generate": "node scripts/generate-version.js",
+    "prerelease": "npm run build",
     "release": "bash scripts/release.sh"
   },
   "repository": {

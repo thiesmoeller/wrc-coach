@@ -361,19 +361,23 @@ function App() {
           sampleCount={samples.length}
         />
 
-        <div className="chart-container">
-          <h2 className="chart-title">Stroke Cycle Analysis</h2>
-          <PolarPlot 
-            samples={samples}
-            historyStrokes={settings.historyStrokes}
-            trailOpacity={settings.trailOpacity}
-          />
-        </div>
+        {!settings.disablePlots && (
+          <>
+            <div className="chart-container">
+              <h2 className="chart-title">Stroke Cycle Analysis</h2>
+              <PolarPlot 
+                samples={samples}
+                historyStrokes={settings.historyStrokes}
+                trailOpacity={settings.trailOpacity}
+              />
+            </div>
 
-        <div className="chart-container">
-          <h2 className="chart-title">Boat Stability (Roll) - Stroke Cycle</h2>
-          <StabilityPlot samples={samples} />
-        </div>
+            <div className="chart-container">
+              <h2 className="chart-title">Boat Stability (Roll) - Stroke Cycle</h2>
+              <StabilityPlot samples={samples} />
+            </div>
+          </>
+        )}
       </main>
 
       <ControlPanel

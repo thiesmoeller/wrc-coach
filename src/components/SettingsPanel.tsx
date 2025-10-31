@@ -73,6 +73,20 @@ export function SettingsPanel({ isOpen, onClose, motionData, settings, updateSet
               </div>
               <p className="setting-help">Opacity of historical stroke trails</p>
             </div>
+
+            <div className="setting-item">
+              <label htmlFor="disablePlots" className="checkbox-label">
+                <input
+                  type="checkbox"
+                  id="disablePlots"
+                  className="toggle-checkbox"
+                  checked={settings.disablePlots}
+                  onChange={(e) => updateSettings({ disablePlots: e.target.checked })}
+                />
+                <span>Disable Plots</span>
+              </label>
+              <p className="setting-help">Turn off all plot rendering to reduce CPU/memory usage (useful on unstable devices)</p>
+            </div>
           </div>
 
           {/* Detection Settings */}
