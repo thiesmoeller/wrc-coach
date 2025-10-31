@@ -198,9 +198,11 @@ export class IndexedDBStorage {
       }
     }
     
-    // Second pass: merge magnetometer-only samples with nearest accel/gyro samples
-    // Use a time window of 10ms to find matching samples
-    const MAGNETOMETER_MERGE_WINDOW_MS = 10;
+    // Second pass: merge magnetometer/orientation-only samples with nearest accel/gyro samples
+    // Use a time window of 50ms to find matching samples (orientation data may come at slightly different rate)
+    const MAGNETOMETER_MERGE_WINDOW_MS = 50;
+    let mergedCount = 0;
+    let createdCount = 0;
     for (const magSample of magnetometerSamples) {
       const roundedTimestamp = roundTimestamp(magSample.t);
       
@@ -230,6 +232,7 @@ export class IndexedDBStorage {
         if (magSample.mx !== undefined) target.mx = magSample.mx;
         if (magSample.my !== undefined) target.my = magSample.my;
         if (magSample.mz !== undefined) target.mz = magSample.mz;
+        mergedCount++;
       } else {
         // No matching accel/gyro sample found - create IMU sample with only magnetometer
         // This should be rare, but can happen if sensors are out of sync
@@ -245,11 +248,25 @@ export class IndexedDBStorage {
           my: magSample.my,
           mz: magSample.mz,
         });
+        createdCount++;
       }
+    }
+    
+    // Debug: Log merge statistics
+    if (magnetometerSamples.length > 0) {
+      const mergeMsg = `[Storage] Merged ${mergedCount} orientation samples, created ${createdCount} standalone orientation samples from ${magnetometerSamples.length} total orientation samples`;
+      console.log(mergeMsg);
+      console.error(mergeMsg);
     }
     
     // Convert map to array and sort by timestamp
     imuSamples.push(...Array.from(imuMap.values()).sort((a, b) => a.t - b.t));
+    
+    // Debug: Count how many samples have orientation/magnetometer data
+    const samplesWithOrientation = imuSamples.filter(s => s.mx !== undefined || s.my !== undefined || s.mz !== undefined).length;
+    const msg = `[Storage] Saving session: ${imuSamples.length} IMU samples, ${samplesWithOrientation} with orientation/magnetometer data`;
+    console.log(msg);
+    console.error(msg); // Also log as error for better visibility in adb logcat
     
     // Create binary data
     const metadata: SessionMetadata = {

@@ -83,6 +83,11 @@ export class BinaryDataWriter {
       s.mx !== undefined || s.my !== undefined || s.mz !== undefined
     );
     const version = hasMagnetometer ? 3 : 2;
+    
+    // Debug: Log version detection
+    const versionMsg = `[BinaryWriter] Version detection: ${imuSamples.length} IMU samples, hasMagnetometer=${hasMagnetometer}, using V${version}`;
+    console.log(versionMsg);
+    console.error(versionMsg);
     const imuSampleSize = version === 3 ? this.IMU_SAMPLE_SIZE_V3 : this.IMU_SAMPLE_SIZE_V2;
     
     // Calculate total size

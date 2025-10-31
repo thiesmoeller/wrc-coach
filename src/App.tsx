@@ -212,10 +212,21 @@ function App() {
     setSamples((prev) => [...prev, sample]);
   }, [isRunning, settings.phoneOrientation, isCalibrated, applyCalibration]);
 
+  // Track orientation sample count for debugging
+  const orientationSampleCountRef = useRef(0);
+  
   // Handle Device Orientation data (compass/heading - available on all phones)
   const handleOrientation = useCallback((data: OrientationData) => {
     // Track sensor status
     orientationLastTimeRef.current = performance.now();
+    
+    // Log first few orientation samples for debugging (use console.error for better visibility in adb logcat)
+    orientationSampleCountRef.current++;
+    if (orientationSampleCountRef.current <= 5) {
+      const msg = `[Orientation] Sample ${orientationSampleCountRef.current}: alpha=${data.alpha.toFixed(1)}, beta=${data.beta.toFixed(1)}, gamma=${data.gamma.toFixed(1)}, isRunning=${isRunning}`;
+      console.log(msg);
+      console.error(msg); // Also log as error for better visibility in adb logcat
+    }
     
     if (!isRunning) return;
 
@@ -226,7 +237,16 @@ function App() {
       beta: data.beta,   // Front-back tilt
       gamma: data.gamma, // Left-right tilt
     };
-    setSamples((prev) => [...prev, sample]);
+    setSamples((prev) => {
+      const newSamples = [...prev, sample];
+      // Log when we store orientation samples during recording
+      if (orientationSampleCountRef.current <= 10) {
+        const storeMsg = `[App] Stored orientation sample ${orientationSampleCountRef.current} (total samples: ${newSamples.length})`;
+        console.log(storeMsg);
+        console.error(storeMsg);
+      }
+      return newSamples;
+    });
   }, [isRunning]);
 
   // Handle GPS data
@@ -317,6 +337,9 @@ function App() {
     setSessionStartTime(Date.now());
     setSamples([]);
     
+    // Reset orientation sample counter for debugging
+    orientationSampleCountRef.current = 0;
+    
     // Mark session as active (prevents app updates during recording)
     sessionStorage.setItem('wrc_recording_active', 'true');
     
@@ -386,6 +409,13 @@ function App() {
     // Save session if we have data
     if (samples.length > 0) {
       try {
+        // Debug: Count orientation samples before saving
+        const orientationSamples = samples.filter(s => s.type === 'imu' && (s.alpha !== undefined || s.beta !== undefined || s.gamma !== undefined));
+        const imuOnlySamples = samples.filter(s => s.type === 'imu' && (s.ax !== undefined || s.gx !== undefined));
+        const saveMsg = `[App] Saving session: ${samples.length} total samples, ${orientationSamples.length} orientation samples, ${imuOnlySamples.length} IMU samples`;
+        console.log(saveMsg);
+        console.error(saveMsg);
+        
         await saveSession({
           duration,
           samples,
