@@ -118,7 +118,13 @@ export class BinaryDataReader {
       gz: view.getFloat32(offset + 28, true),
     };
     
-    // V3: Read magnetometer data
+    // V3: Read magnetometer/orientation data
+    // Note: mx/my/mz can contain either:
+    //   - Magnetometer data (µT) for older files
+    //   - Orientation data (degrees) for newer files:
+    //     - mx = alpha (compass heading 0-360°)
+    //     - my = beta (front-back tilt)
+    //     - mz = gamma (left-right tilt)
     if (version === 3) {
       const mx = view.getFloat32(offset + 32, true);
       const my = view.getFloat32(offset + 36, true);

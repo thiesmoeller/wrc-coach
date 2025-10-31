@@ -112,31 +112,40 @@ export class IndexedDBStorage {
     const imuMap = new Map<number, IMUSample>();
     const magnetometerSamples: Array<{ t: number; mx?: number; my?: number; mz?: number }> = [];
     
-    // First pass: collect accel/gyro samples and magnetometer samples separately
+    // First pass: collect accel/gyro samples and magnetometer/orientation samples separately
     for (const sample of sessionData.samples) {
       if (sample.type === 'imu') {
         const timestamp = sample.timestamp || sample.t;
         const roundedTimestamp = roundTimestamp(timestamp);
         
-        if (sample.mx !== undefined || sample.my !== undefined || sample.mz !== undefined) {
-          // Check if this is a magnetometer-only sample
+        // Map orientation data (alpha, beta, gamma) to magnetometer fields (mx, my, mz)
+        // This allows us to use the existing V3 binary format for orientation data
+        // alpha (compass heading 0-360°) → mx
+        // beta (front-back tilt) → my
+        // gamma (left-right tilt) → mz
+        const mx = sample.mx ?? (sample.alpha !== undefined ? sample.alpha : undefined);
+        const my = sample.my ?? (sample.beta !== undefined ? sample.beta : undefined);
+        const mz = sample.mz ?? (sample.gamma !== undefined ? sample.gamma : undefined);
+        
+        if (mx !== undefined || my !== undefined || mz !== undefined) {
+          // Check if this is a magnetometer/orientation-only sample
           if (sample.ax === undefined && sample.ay === undefined && sample.az === undefined &&
               sample.gx === undefined && sample.gy === undefined && sample.gz === undefined) {
-            // Pure magnetometer sample - store for merging
+            // Pure magnetometer/orientation sample - store for merging
             magnetometerSamples.push({
               t: timestamp,
-              mx: sample.mx,
-              my: sample.my,
-              mz: sample.mz,
+              mx,
+              my,
+              mz,
             });
           } else {
-            // Combined sample (accel/gyro + magnetometer)
+            // Combined sample (accel/gyro + magnetometer/orientation)
             const existing = imuMap.get(roundedTimestamp);
             if (existing) {
-              // Merge magnetometer data into existing sample
-              if (sample.mx !== undefined) existing.mx = sample.mx;
-              if (sample.my !== undefined) existing.my = sample.my;
-              if (sample.mz !== undefined) existing.mz = sample.mz;
+              // Merge magnetometer/orientation data into existing sample
+              if (mx !== undefined) existing.mx = mx;
+              if (my !== undefined) existing.my = my;
+              if (mz !== undefined) existing.mz = mz;
             } else {
               // Create new IMU sample with all data
               imuMap.set(roundedTimestamp, {
@@ -147,9 +156,9 @@ export class IndexedDBStorage {
                 gx: sample.gx ?? 0,
                 gy: sample.gy ?? 0,
                 gz: sample.gz ?? 0,
-                mx: sample.mx,
-                my: sample.my,
-                mz: sample.mz,
+                mx,
+                my,
+                mz,
               });
             }
           }

@@ -51,9 +51,9 @@ class IMUSample:
     gx: float  # deg/s
     gy: float
     gz: float
-    mx: Optional[float] = None  # µT (V3 only)
-    my: Optional[float] = None  # µT (V3 only)
-    mz: Optional[float] = None  # µT (V3 only)
+    mx: Optional[float] = None  # µT (magnetometer) OR Alpha (compass heading 0-360°) - V3 only
+    my: Optional[float] = None  # µT (magnetometer) OR Beta (front-back tilt) - V3 only
+    mz: Optional[float] = None  # µT (magnetometer) OR Gamma (left-right tilt) - V3 only
 
 
 @dataclass

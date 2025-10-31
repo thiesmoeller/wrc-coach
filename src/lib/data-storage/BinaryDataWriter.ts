@@ -9,9 +9,9 @@ export interface IMUSample {
   gx: number;   // Gyroscope X (deg/s)
   gy: number;   // Gyroscope Y (deg/s)
   gz: number;   // Gyroscope Z (deg/s)
-  mx?: number;  // Magnetometer X (µT) - V3 only
-  my?: number;  // Magnetometer Y (µT) - V3 only
-  mz?: number;  // Magnetometer Z (µT) - V3 only
+  mx?: number;  // Magnetometer X (µT) or Orientation Alpha (compass heading 0-360°) - V3 only
+  my?: number;  // Magnetometer Y (µT) or Orientation Beta (front-back tilt) - V3 only
+  mz?: number;  // Magnetometer Z (µT) or Orientation Gamma (left-right tilt) - V3 only
 }
 
 /**
@@ -77,8 +77,11 @@ export class BinaryDataWriter {
     const calibrationCount = calibrationSamples.length;
     const hasCalibration = metadata.calibration ? 1 : 0;
     
-    // Detect if magnetometer data is present
-    const hasMagnetometer = imuSamples.some(s => s.mx !== undefined || s.my !== undefined || s.mz !== undefined);
+    // Detect if magnetometer or orientation data is present
+    // Note: Orientation data (alpha/beta/gamma) gets mapped to mx/my/mz during storage
+    const hasMagnetometer = imuSamples.some(s => 
+      s.mx !== undefined || s.my !== undefined || s.mz !== undefined
+    );
     const version = hasMagnetometer ? 3 : 2;
     const imuSampleSize = version === 3 ? this.IMU_SAMPLE_SIZE_V3 : this.IMU_SAMPLE_SIZE_V2;
     

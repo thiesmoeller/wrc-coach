@@ -1,5 +1,11 @@
 /**
  * IMU sensor sample
+ * Note: V3 files may include mx/my/mz fields which can contain:
+ *   - Magnetometer data (µT) for older files
+ *   - Orientation data (degrees) for newer files:
+ *     - mx = alpha (compass heading 0-360°)
+ *     - my = beta (front-back tilt)
+ *     - mz = gamma (left-right tilt)
  */
 export interface IMUSample {
   t: number;    // timestamp (ms)
@@ -9,6 +15,9 @@ export interface IMUSample {
   gx: number;   // gyro x (deg/s)
   gy: number;   // gyro y (deg/s)
   gz: number;   // gyro z (deg/s)
+  mx?: number;  // Magnetometer X (µT) OR Orientation Alpha (compass heading 0-360°) - V3 only
+  my?: number;  // Magnetometer Y (µT) OR Orientation Beta (front-back tilt) - V3 only
+  mz?: number;  // Magnetometer Z (µT) OR Orientation Gamma (left-right tilt) - V3 only
 }
 
 /**
