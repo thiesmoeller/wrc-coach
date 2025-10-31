@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { type SessionMetadataStorage } from '../lib/data-storage/IndexedDBStorage';
 import { ConfirmDialog } from './ConfirmDialog';
 import './SessionPanel.css';
@@ -29,6 +29,7 @@ export function SessionPanel({
   const [confirmDelete, setConfirmDelete] = useState<{ show: boolean; sessionId?: string }>({ show: false });
   const [confirmClearAll, setConfirmClearAll] = useState(false);
   const [exportingId, setExportingId] = useState<string | null>(null);
+  const [sessionVersions, setSessionVersions] = useState<Record<string, number>>({});
 
   if (!isOpen) return null;
 
@@ -151,6 +152,42 @@ export function SessionPanel({
     return `${bytes} B`;
   };
 
+  // Helper function to detect file format version from binary data
+  const detectVersion = (buffer: ArrayBuffer): number => {
+    const view = new DataView(buffer);
+    let magic = '';
+    for (let i = 0; i < 16; i++) {
+      const char = view.getUint8(i);
+      if (char !== 0) magic += String.fromCharCode(char);
+    }
+    if (magic.startsWith('WRC_COACH_V3')) return 3;
+    if (magic.startsWith('WRC_COACH_V2')) return 2;
+    if (magic.startsWith('WRC_COACH_V1')) return 1;
+    return 0; // Unknown
+  };
+
+  // Load versions for all sessions when panel opens
+  useEffect(() => {
+    if (!isOpen || sessions.length === 0) return;
+    
+    const loadVersions = async () => {
+      const versions: Record<string, number> = {};
+      for (const session of sessions) {
+        try {
+          const buffer = await getSessionBinary(session.id);
+          if (buffer) {
+            versions[session.id] = detectVersion(buffer);
+          }
+        } catch (error) {
+          console.error(`Failed to detect version for session ${session.id}:`, error);
+        }
+      }
+      setSessionVersions(versions);
+    };
+    
+    loadVersions();
+  }, [isOpen, sessions, getSessionBinary]);
+
   const sortedSessions = [...sessions].sort((a, b) => b.timestamp - a.timestamp);
 
   return (
@@ -211,6 +248,14 @@ export function SessionPanel({
                       <div className="meta-item">
                         <span className="meta-label">Size</span>
                         <span className="meta-value">{formatSize(session.dataSize)}</span>
+                      </div>
+                      <div className="meta-item">
+                        <span className="meta-label">Format</span>
+                        <span className="meta-value">
+                          {sessionVersions[session.id] !== undefined 
+                            ? `V${sessionVersions[session.id]}` 
+                            : '...'}
+                        </span>
                       </div>
                     </div>
                   </div>
