@@ -28,8 +28,15 @@ export function useDeviceMotion({ onMotion, enabled, demoMode = false }: UseDevi
   const handleMotion = useCallback((event: DeviceMotionEvent) => {
     const t = performance.now();
     
-    // Get acceleration
-    const a = event.acceleration || event.accelerationIncludingGravity;
+    // Get acceleration.
+    //
+    // The orientation filter (AHRS) needs the FULL specific force — i.e.
+    // acceleration INCLUDING gravity — to observe the gravity direction and
+    // remove it correctly downstream. Prefer `accelerationIncludingGravity`
+    // and only fall back to `acceleration` (linear/gravity-removed) if the
+    // device does not provide it. The legacy code preferred the gravity-removed
+    // channel, which left the old tilt estimator with no usable reference.
+    const a = event.accelerationIncludingGravity || event.acceleration;
     const g = event.rotationRate;
     
     if (!a || a.x === null) return;

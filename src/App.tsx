@@ -8,15 +8,9 @@ import { SessionPanel } from './components/SessionPanel';
 import { PolarPlot } from './components/PolarPlot';
 import { StabilityPlot } from './components/StabilityPlot';
 import { UpdateNotification } from './components/UpdateNotification';
-import { useSettings, useDeviceMotion, useDeviceOrientation, useGeolocation, useWakeLock, useCalibration, useSessionStorage, type MotionData, type GPSData, type OrientationData } from './hooks';
-import {
-  ComplementaryFilter,
-  KalmanFilterGPS,
-  BandPassFilter,
-  LowPassFilter,
-} from './lib/filters';
-import { StrokeDetector, BaselineCorrector } from './lib/stroke-detection';
-import { transformToBoatFrame } from './lib/transforms';
+import { KeepAwakeNotice } from './components/KeepAwakeNotice';
+import { useSettings, useDeviceMotion, useDeviceOrientation, useGeolocation, useWakeLock, useBackgroundInterruptions, useCalibration, useSessionStorage, type MotionData, type GPSData, type OrientationData } from './hooks';
+import { RowingPipeline } from './lib/analysis';
 import { convertToSplitTime } from './utils/conversions';
 import './App.css';
 
@@ -48,7 +42,7 @@ interface Sample {
 
 function App() {
   const { settings, updateSettings, resetSettings } = useSettings();
-  const { applyCalibration, isCalibrated, calibrationData } = useCalibration();
+  const { calibrationData } = useCalibration();
   const { sessions, isLoading, saveSession, saveSessionIncremental, deleteSession, clearAllSessions, getSessionBinary } = useSessionStorage();
   const [isRunning, setIsRunning] = useState(false);
   const isRunningRef = useRef(false); // Ref to track isRunning for callbacks
@@ -96,11 +90,13 @@ function App() {
   const [strokeRate, setStrokeRate] = useState(0);
   const [drivePercent, setDrivePercent] = useState(0);
   const [fusedVelocity, setFusedVelocity] = useState(0);
+  const [distance, setDistance] = useState(0);
   
   // Session metrics tracking
   const strokeRatesRef = useRef<number[]>([]);
   const drivePercentsRef = useRef<number[]>([]);
   const speedsRef = useRef<number[]>([]);
+  const rollSamplesRef = useRef<number[]>([]);
   
   // Helper: Limit UI samples to last 2 minutes
   const limitUISamples = useCallback((newSamples: Sample[]) => {
@@ -149,21 +145,18 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Filters and detectors (using refs to persist across renders)
-  const complementaryFilterRef = useRef(new ComplementaryFilter(0.98));
-  const kalmanFilterRef = useRef(new KalmanFilterGPS());
-  const bandPassFilterRef = useRef(new BandPassFilter(0.3, 1.2, 50));
-  const lowPassFilterRef = useRef(new LowPassFilter(0.85));
-  const strokeDetectorRef = useRef(new StrokeDetector({
-    catchThreshold: settings.catchThreshold,
-    finishThreshold: settings.finishThreshold,
-  }));
-  const baselineCorrectorRef = useRef(new BaselineCorrector(3000));
-  
-  const lastIMUTimeRef = useRef<number | null>(null);
+  // Unified real-time analysis pipeline (AHRS + adaptive strokes + INS/GPS
+  // fusion). This is the same processing chain the offline Python analysis
+  // uses, so on-water feedback and post-session analysis agree.
+  const pipelineRef = useRef(new RowingPipeline());
 
-  // Enable wake lock
-  useWakeLock();
+  // Keep the screen awake during a session and expose whether it's holding, so
+  // the UI can prompt the athlete to keep the app in the foreground.
+  const { isSupported: wakeLockSupported, isActive: wakeLockActive } = useWakeLock();
+
+  // Track background/screen-lock interruptions while recording so gaps in the
+  // sensor data are surfaced rather than silent.
+  const backgroundInterruptions = useBackgroundInterruptions(isRunning);
 
   // Monitor visibility changes during recording to detect background interruptions
   useEffect(() => {
@@ -182,14 +175,6 @@ function App() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [isRunning]);
 
-  // Update detector thresholds when settings change
-  useEffect(() => {
-    strokeDetectorRef.current.setThresholds({
-      catchThreshold: settings.catchThreshold,
-      finishThreshold: settings.finishThreshold,
-    });
-  }, [settings.catchThreshold, settings.finishThreshold]);
-
   // Handle IMU data
   const handleMotion = useCallback((data: MotionData) => {
     // Always store latest motion data for calibration
@@ -202,64 +187,34 @@ function App() {
     
     if (!isRunning) return;
 
-    const dt = lastIMUTimeRef.current ? (data.t - lastIMUTimeRef.current) / 1000 : 0.02;
-    lastIMUTimeRef.current = data.t;
-
-    // Apply calibration if available
-    const corrected = isCalibrated 
-      ? applyCalibration(data.ax, data.ay, data.az)
-      : { ax: data.ax, ay: data.ay, az: data.az };
-
-    // Update orientation
-    const orientation = complementaryFilterRef.current.update(
-      corrected.ax, corrected.ay, corrected.az,
+    // Run the full SOTA pipeline: AHRS gravity removal → data-driven boat
+    // frame → band-pass → adaptive stroke detection → INS/GPS speed.
+    const p = pipelineRef.current.processIMU(
+      data.t,
+      data.ax, data.ay, data.az,
       data.gx, data.gy, data.gz,
-      dt
     );
 
-    // Transform to boat frame
-    const boatAccel = transformToBoatFrame(
-      corrected.ax, corrected.ay, corrected.az,
-      orientation,
-      settings.phoneOrientation
-    );
-
-    // Filter the surge acceleration
-    const surgeBP = bandPassFilterRef.current.process(boatAccel.surge);
-    const surgeSmooth = lowPassFilterRef.current.process(surgeBP);
-
-    // Detect strokes
-    const completedStroke = strokeDetectorRef.current.process(data.t, surgeSmooth);
-    if (completedStroke) {
-      const sr = completedStroke.strokeRate || 0;
-      const dp = completedStroke.drivePercent || 0;
-      setStrokeRate(sr);
-      setDrivePercent(dp);
-      
-      // Track metrics for session analysis
-      if (sr > 0) {
-        strokeRatesRef.current.push(sr);
-      }
-      if (dp > 0) {
-        drivePercentsRef.current.push(dp);
-      }
+    if (p.stroke && p.stroke.strokeRate > 0) {
+      setStrokeRate(p.stroke.strokeRate);
+      setDrivePercent(p.stroke.drivePercent);
+      strokeRatesRef.current.push(p.stroke.strokeRate);
+      drivePercentsRef.current.push(p.stroke.drivePercent);
     }
 
-    // Update baseline
-    baselineCorrectorRef.current.update(
-      data.t,
-      surgeSmooth,
-      strokeDetectorRef.current.isInDrive()
-    );
+    setFusedVelocity(p.speed);
+    setDistance(p.distance);
+    rollSamplesRef.current.push(p.roll);
 
-    // Store sample
+    // Store sample (raw sensor data is persisted; the computed channels drive
+    // the live plots).
     const sample: Sample = {
       ...data,
       type: 'imu',
-      surgeHP: surgeSmooth,
-      inDrive: strokeDetectorRef.current.isInDrive(),
-      strokeAngle: strokeDetectorRef.current.getStrokeAngle(data.t),
-      roll: orientation.roll,
+      surgeHP: p.surge,
+      inDrive: p.inDrive,
+      strokeAngle: p.strokeAngle,
+      roll: p.roll,
     };
 
     // Add to circular buffer
@@ -271,7 +226,7 @@ function App() {
     
     // Increment total sample counter
     setTotalSampleCount(prev => prev + 1);
-  }, [isRunning, settings.phoneOrientation, isCalibrated, applyCalibration, limitUISamples]);
+  }, [isRunning, limitUISamples]);
 
   // Track orientation sample count for debugging
   const orientationSampleCountRef = useRef(0);
@@ -324,10 +279,10 @@ function App() {
     
     if (!isRunning) return;
 
-    // Update Kalman filter with GPS measurement
-    kalmanFilterRef.current.updateGPS(data.speed);
-    const velocity = kalmanFilterRef.current.getVelocity();
+    // Fuse the GPS speed fix into the INS/GPS Kalman filter.
+    const velocity = pipelineRef.current.processGPS(data.speed, data.accuracy ?? 5);
     setFusedVelocity(velocity);
+    setDistance(pipelineRef.current.speed.getDistance());
     
     // Track speeds for session analysis
     if (data.speed > 0) {
@@ -428,27 +383,9 @@ function App() {
       ? Math.max(...speedsRef.current)
       : 0;
     
-    // Calculate total distance - approximate from GPS samples in memory
-    // For accurate distance, would need all GPS samples, but this is sufficient for display
-    // Use current samples state snapshot to avoid stale closure issues
-    const currentSamples = samples; // Capture current value
-    const gpsSamples = currentSamples.filter(s => s.type === 'gps');
-    let totalDistance = 0;
-    for (let i = 1; i < gpsSamples.length; i++) {
-      const prev = gpsSamples[i - 1];
-      const curr = gpsSamples[i];
-      if (prev.lat && prev.lon && curr.lat && curr.lon) {
-        // Simple distance calculation (Haversine formula)
-        const R = 6371000; // Earth's radius in meters
-        const dLat = (curr.lat - prev.lat) * Math.PI / 180;
-        const dLon = (curr.lon - prev.lon) * Math.PI / 180;
-        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-          Math.cos(prev.lat * Math.PI / 180) * Math.cos(curr.lat * Math.PI / 180) *
-          Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        totalDistance += R * c;
-      }
-    }
+    // Total distance from the fused INS/GPS estimate (accumulated across the
+    // whole session, not just the ~2 min of GPS retained in memory).
+    const totalDistance = pipelineRef.current.speed.getDistance();
     
     return {
       duration,
@@ -458,7 +395,7 @@ function App() {
       totalDistance,
       strokeCount: strokeRatesRef.current.length,
     };
-  }, [samples]);
+  }, []);
 
   // Estimate binary size for samples (rough estimate: ~32 bytes per IMU sample, ~36 bytes per GPS sample)
   const estimateBinarySize = useCallback((samples: Sample[]): number => {
@@ -538,22 +475,19 @@ function App() {
     // Mark session as active (prevents app updates during recording)
     sessionStorage.setItem('wrc_recording_active', 'true');
     
-    // Reset filters
-    complementaryFilterRef.current.reset();
-    kalmanFilterRef.current.reset();
-    bandPassFilterRef.current.reset();
-    lowPassFilterRef.current.reset();
-    strokeDetectorRef.current.reset();
-    baselineCorrectorRef.current.reset();
+    // Reset the analysis pipeline
+    pipelineRef.current.reset();
     
     // Reset metrics tracking
     strokeRatesRef.current = [];
     drivePercentsRef.current = [];
     speedsRef.current = [];
+    rollSamplesRef.current = [];
     
     setStrokeRate(0);
     setDrivePercent(0);
     setFusedVelocity(0);
+    setDistance(0);
     
     // Start write check interval (every 1 second) - check if >= 32KB ready
     writeCheckIntervalRef.current = window.setInterval(() => {
@@ -566,7 +500,6 @@ function App() {
   // Stop session and save
   const handleStop = useCallback(async () => {
     setIsRunning(false);
-    lastIMUTimeRef.current = null;
     
     // Clear write check interval
     if (writeCheckIntervalRef.current !== null) {
@@ -672,10 +605,20 @@ function App() {
       )}
 
       <main className="main-content">
+        <KeepAwakeNotice
+          recording={isRunning}
+          wakeLockSupported={wakeLockSupported}
+          wakeLockActive={wakeLockActive}
+          interruptionCount={backgroundInterruptions.count}
+          totalHiddenMs={backgroundInterruptions.totalHiddenMs}
+        />
+
         <MetricsBar
           strokeRate={strokeRate}
           drivePercent={drivePercent}
           splitTime={splitTime}
+          distance={distance}
+          speed={fusedVelocity}
           sampleCount={totalSampleCount}
         />
 

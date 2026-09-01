@@ -1,0 +1,17 @@
+{
+  "name": "WRC Coach",
+  "install": "bash .cursor/install.sh",
+  "terminals": [
+    {
+      "name": "vite-dev",
+      "command": "npm run dev",
+      "description": "Vite dev server for the WRC Coach PWA, served on http://localhost:3000"
+    }
+  ],
+  "ports": [
+    {
+      "name": "vite-dev-server",
+      "port": 3000
+    }
+  ]
+}
