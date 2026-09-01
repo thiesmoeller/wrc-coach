@@ -8,7 +8,8 @@ import { SessionPanel } from './components/SessionPanel';
 import { PolarPlot } from './components/PolarPlot';
 import { StabilityPlot } from './components/StabilityPlot';
 import { UpdateNotification } from './components/UpdateNotification';
-import { useSettings, useDeviceMotion, useDeviceOrientation, useGeolocation, useWakeLock, useCalibration, useSessionStorage, type MotionData, type GPSData, type OrientationData } from './hooks';
+import { KeepAwakeNotice } from './components/KeepAwakeNotice';
+import { useSettings, useDeviceMotion, useDeviceOrientation, useGeolocation, useWakeLock, useBackgroundInterruptions, useCalibration, useSessionStorage, type MotionData, type GPSData, type OrientationData } from './hooks';
 import { RowingPipeline } from './lib/analysis';
 import { convertToSplitTime } from './utils/conversions';
 import './App.css';
@@ -149,8 +150,13 @@ function App() {
   // uses, so on-water feedback and post-session analysis agree.
   const pipelineRef = useRef(new RowingPipeline());
 
-  // Enable wake lock
-  useWakeLock();
+  // Keep the screen awake during a session and expose whether it's holding, so
+  // the UI can prompt the athlete to keep the app in the foreground.
+  const { isSupported: wakeLockSupported, isActive: wakeLockActive } = useWakeLock();
+
+  // Track background/screen-lock interruptions while recording so gaps in the
+  // sensor data are surfaced rather than silent.
+  const backgroundInterruptions = useBackgroundInterruptions(isRunning);
 
   // Monitor visibility changes during recording to detect background interruptions
   useEffect(() => {
@@ -599,6 +605,14 @@ function App() {
       )}
 
       <main className="main-content">
+        <KeepAwakeNotice
+          recording={isRunning}
+          wakeLockSupported={wakeLockSupported}
+          wakeLockActive={wakeLockActive}
+          interruptionCount={backgroundInterruptions.count}
+          totalHiddenMs={backgroundInterruptions.totalHiddenMs}
+        />
+
         <MetricsBar
           strokeRate={strokeRate}
           drivePercent={drivePercent}
