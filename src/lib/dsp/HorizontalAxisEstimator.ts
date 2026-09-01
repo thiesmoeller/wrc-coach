@@ -38,7 +38,7 @@ export class HorizontalAxisEstimator {
    *                   span several strokes (default 8 s) so the estimate is
    *                   stable but can still adapt if the mounting changes.
    */
-  constructor(private tauSeconds = 8) {
+  constructor(tauSeconds = 8) {
     this.tau = tauSeconds;
   }
 

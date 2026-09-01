@@ -4,10 +4,24 @@ interface MetricsBarProps {
   strokeRate: number;
   drivePercent: number;
   splitTime: string;
+  distance: number;
+  speed: number;
   sampleCount: number;
 }
 
-export function MetricsBar({ strokeRate, drivePercent, splitTime, sampleCount }: MetricsBarProps) {
+export function MetricsBar({
+  strokeRate,
+  drivePercent,
+  splitTime,
+  distance,
+  speed,
+  sampleCount,
+}: MetricsBarProps) {
+  const distanceLabel = distance >= 1000
+    ? `${(distance / 1000).toFixed(2)}`
+    : `${Math.round(distance)}`;
+  const distanceUnit = distance >= 1000 ? 'km' : 'm';
+
   return (
     <div className="metrics-bar">
       <div className="metric-card">
@@ -27,6 +41,18 @@ export function MetricsBar({ strokeRate, drivePercent, splitTime, sampleCount }:
         <div className="metric-value">{splitTime}</div>
         <div className="metric-unit">/500m</div>
       </div>
+
+      <div className="metric-card">
+        <div className="metric-label">Distance</div>
+        <div className="metric-value">{distanceLabel}</div>
+        <div className="metric-unit">{distanceUnit}</div>
+      </div>
+
+      <div className="metric-card">
+        <div className="metric-label">Speed</div>
+        <div className="metric-value">{speed > 0 ? speed.toFixed(1) : '--'}</div>
+        <div className="metric-unit">m/s</div>
+      </div>
       
       <div className="metric-card">
         <div className="metric-label">Samples</div>
@@ -36,4 +62,3 @@ export function MetricsBar({ strokeRate, drivePercent, splitTime, sampleCount }:
     </div>
   );
 }
-
