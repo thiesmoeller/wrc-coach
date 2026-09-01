@@ -13,3 +13,9 @@ export {
 
 export { BaselineCorrector } from './BaselineCorrector';
 
+export {
+  AdaptiveStrokeDetector,
+  type StrokeMetrics,
+  type AdaptiveStrokeOptions,
+} from './AdaptiveStrokeDetector';
+
