@@ -14,6 +14,41 @@ pip install pandas numpy matplotlib
 
 ## Scripts
 
+### 0. `rowing_analysis.py` — SOTA offline analysis & aggregation ⭐
+
+The offline mirror of the app's real-time `RowingPipeline`
+(`src/lib/analysis/RowingPipeline.ts`): sample-rate estimation → Madgwick AHRS
+gravity removal → PCA-derived boat frame → band-pass → adaptive zero-crossing
+stroke detection → INS/GPS speed fusion. Because it runs the *same* chain, the
+post-session numbers match what the athlete saw on the water. Being offline it
+uses **zero-phase** filtering (unbiased catch/finish timing) and whole-session
+PCA.
+
+**Usage:**
+```bash
+python rowing_analysis.py session.wrcdata --out-dir analysis_out
+```
+
+**Outputs:**
+- `summary.json` — session aggregate (rate + consistency CV, drive ratio, peak
+  drive accel, catch sharpness, recovery "check", distance, distance/stroke,
+  speed, best split, boat-set roll RMS).
+- `strokes.csv` — per-stroke table (catch/finish/drive/recovery times, rate,
+  drive %, peak accel, catch sharpness, check).
+- `analysis.png` — stroke-cycle overlay, rate/drive consistency, fused speed vs
+  GPS, and boat set (roll).
+
+### 0b. `generate_wrcdata.py` — synthetic session generator
+
+Writes a physically self-consistent `.wrcdata` (tilted phone, arbitrary heading,
+boat set) for testing the analysis without a phone on the water. Mirrors
+`src/lib/analysis/SyntheticRower.ts`.
+
+```bash
+python generate_wrcdata.py demo.wrcdata --spm 24 --duration 90
+python rowing_analysis.py demo.wrcdata      # recovers 24 SPM, 33% drive, set RMS ≈ true
+```
+
 ### 1. `read_wrcdata.py`
 Read and parse binary `.wrcdata` files.
 
