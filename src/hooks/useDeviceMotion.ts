@@ -82,8 +82,8 @@ export function useDeviceMotion({ onMotion, enabled, demoMode = false }: UseDevi
       const sampleRate = 50; // Hz
       const dt = 1000 / sampleRate; // ms (20ms between samples)
       
-      // Simulate phone mounted level (no offset) for normal demo use
-      // For calibration testing, use Settings → Calibration with actual offset
+      // Simulate a level phone; the pipeline infers any real mounting tilt
+      // from the IMU, so the demo does not need a static calibration pose.
       const mountingPitch = 0; // degrees (level)
       const mountingRoll = 0; // degrees (level)
       const pitchRad = mountingPitch * Math.PI / 180;
