@@ -2,8 +2,36 @@
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 0.5rem;
-  margin-bottom: 0.75rem;
   flex-shrink: 0;
+}
+
+@media (max-width: 480px) {
+  .metrics-bar {
+    gap: 0.35rem;
+  }
+
+  .metric-card {
+    padding: 0.4rem 0.3rem;
+  }
+
+  .metric-value {
+    font-size: 1.2rem;
+  }
+}
+
+@media (max-height: 540px) {
+  .metrics-bar {
+    grid-template-columns: repeat(6, 1fr);
+    gap: 0.3rem;
+  }
+
+  .metric-card {
+    padding: 0.3rem 0.2rem;
+  }
+
+  .metric-value {
+    font-size: 1.05rem;
+  }
 }
 
 .metric-card {

@@ -7,8 +7,21 @@
 
 .polar-canvas {
   width: 100%;
-  height: 280px;
+  height: 250px;
   display: block;
+}
+
+/* Fill leftover height inside the PWA shell without forcing page scroll. */
+.chart-container .polar-plot-container {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+.chart-container .polar-canvas {
+  flex: 1 1 0;
+  min-height: 0;
+  height: 0;
 }
 
 .chart-legend {
@@ -17,6 +30,7 @@
   margin-top: 0.5rem;
   font-size: 0.7rem;
   color: #666;
+  flex-shrink: 0;
 }
 
 .chart-legend.compact {
@@ -43,10 +57,6 @@
 }
 
 @media (max-width: 768px) {
-  .polar-canvas {
-    height: 250px;
-  }
-
   .chart-legend {
     font-size: 0.6rem;
     gap: 0.75rem;

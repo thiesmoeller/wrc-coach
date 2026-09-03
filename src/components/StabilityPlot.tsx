@@ -20,46 +20,56 @@ export function StabilityPlot({ samples }: StabilityPlotProps) {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    const draw = () => {
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
 
-    // Set canvas size
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    ctx.scale(dpr, dpr);
+      // Set canvas size
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) return;
 
-    const width = rect.width;
-    const height = rect.height;
-    const centerY = height / 2;
-    const margin = 40;
-    const plotWidth = width - 2 * margin;
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    // Clear canvas
-    ctx.clearRect(0, 0, width, height);
+      const width = rect.width;
+      const height = rect.height;
+      const centerY = height / 2;
+      const margin = 40;
+      const plotWidth = width - 2 * margin;
+      if (plotWidth <= 0 || height < 1) return;
 
-    // Draw grid
-    drawGrid(ctx, width, height, margin, centerY);
+      // Clear canvas
+      ctx.clearRect(0, 0, width, height);
 
-    // Get samples with both angle and roll
-    const stabilitySamples = samples
-      .filter(s => s.strokeAngle !== undefined && s.roll !== undefined)
-      .map(s => ({
-        angle: s.strokeAngle!,
-        roll: s.roll!,
-      }));
+      // Draw grid
+      drawGrid(ctx, width, height, margin, centerY);
 
-    if (stabilitySamples.length === 0) return;
+      // Get samples with both angle and roll
+      const stabilitySamples = samples
+        .filter(s => s.strokeAngle !== undefined && s.roll !== undefined)
+        .map(s => ({
+          angle: s.strokeAngle!,
+          roll: s.roll!,
+        }));
 
-    // Get most recent complete stroke
-    const currentStroke = getCurrentStroke(stabilitySamples);
-    
-    if (currentStroke.length === 0) return;
+      if (stabilitySamples.length === 0) return;
 
-    // Draw roll trace
-    drawRollTrace(ctx, currentStroke, margin, plotWidth, centerY, height);
+      // Get most recent complete stroke
+      const currentStroke = getCurrentStroke(stabilitySamples);
+      
+      if (currentStroke.length === 0) return;
 
+      // Draw roll trace
+      drawRollTrace(ctx, currentStroke, margin, plotWidth, centerY, height);
+    };
+
+    draw();
+
+    const observer = new ResizeObserver(() => draw());
+    observer.observe(canvas);
+    return () => observer.disconnect();
   }, [samples]);
 
   return (
