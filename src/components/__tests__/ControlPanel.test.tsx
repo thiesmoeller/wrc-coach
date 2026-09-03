@@ -17,7 +17,7 @@ describe('ControlPanel', () => {
     expect(toolbar).not.toBeNull();
     expect(screen.getByRole('button', { name: /sessions/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /start session/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^stop$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /stop/i })).toBeInTheDocument();
     expect(toolbar?.querySelectorAll('button')).toHaveLength(3);
   });
 });

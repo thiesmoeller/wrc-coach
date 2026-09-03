@@ -86,3 +86,15 @@
     font-size: 1rem;
   }
 }
+
+@media (orientation: landscape) and (max-height: 540px) {
+  .control-panel {
+    padding: 0.4rem 0.6rem;
+    gap: 0.5rem;
+  }
+
+  .btn {
+    padding: 0.55rem 0.75rem;
+    font-size: 0.9rem;
+  }
+}

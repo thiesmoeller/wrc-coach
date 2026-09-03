@@ -607,7 +607,7 @@ function App() {
         />
 
         {!settings.disablePlots && (
-          <>
+          <div className="plots-row">
             <div className="chart-container chart-stroke">
               <h2 className="chart-title">Stroke Cycle Analysis</h2>
               <PolarPlot 
@@ -621,7 +621,7 @@ function App() {
               <h2 className="chart-title">Boat Stability (Roll) - Stroke Cycle</h2>
               <StabilityPlot samples={samples} />
             </div>
-          </>
+          </div>
         )}
       </main>
 
