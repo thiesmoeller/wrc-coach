@@ -28,11 +28,15 @@ html, body, #root {
   overflow: hidden;
 }
 
+html, body {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  overscroll-behavior: none;
+}
+
 html {
-  height: 100vh;
-  height: 100dvh;
-  height: 100svh;
-  height: var(--app-height, 100svh);
+  height: 100%;
 }
 
 body {
@@ -49,15 +53,12 @@ body {
 }
 
 .app {
-  /* 100vh on Android Chrome is taller than the visible area (URL bar /
-     gesture nav / punch-hole). Size to the small/dynamic viewport, then
-     to --app-height from visualViewport when JS has run. */
-  height: 100vh;
-  max-height: 100vh;
-  height: 100dvh;
-  max-height: 100dvh;
-  height: 100svh;
-  max-height: 100svh;
+  /* Pin to the visual viewport so Android Chrome / PWA system chrome
+     cannot make 100vh taller than what the user actually sees. */
+  position: fixed;
+  top: var(--app-top, 0px);
+  left: 0;
+  width: 100%;
   height: var(--app-height, 100svh);
   max-height: var(--app-height, 100svh);
   display: flex;
