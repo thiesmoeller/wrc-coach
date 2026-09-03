@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#1e40af" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -12,6 +12,25 @@
     <title>WRC Coach - Wilhelmsburger Ruder Club</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/icon.svg" />
+    <!-- Size the PWA to the visible viewport (Android 100vh is too tall). -->
+    <script>
+      (function () {
+        function syncAppHeight() {
+          var vv = window.visualViewport;
+          var h = (vv && vv.height) || window.innerHeight;
+          var top = (vv && vv.offsetTop) || 0;
+          document.documentElement.style.setProperty('--app-height', h + 'px');
+          document.documentElement.style.setProperty('--app-top', top + 'px');
+        }
+        syncAppHeight();
+        window.addEventListener('resize', syncAppHeight);
+        window.addEventListener('orientationchange', syncAppHeight);
+        if (window.visualViewport) {
+          window.visualViewport.addEventListener('resize', syncAppHeight);
+          window.visualViewport.addEventListener('scroll', syncAppHeight);
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

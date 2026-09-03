@@ -24,90 +24,100 @@ export function PolarPlot({ samples, historyStrokes, trailOpacity }: PolarPlotPr
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    const draw = () => {
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
 
-    // Set canvas size
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    ctx.scale(dpr, dpr);
+      // Set canvas size
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) return;
 
-    const width = rect.width;
-    const height = rect.height;
-    const margin = { left: 50, right: 20, top: 20, bottom: 40 };
-    const plotWidth = width - margin.left - margin.right;
-    const plotHeight = height - margin.top - margin.bottom;
-    const centerY = margin.top + plotHeight / 2;
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    // Clear canvas
-    ctx.clearRect(0, 0, width, height);
+      const width = rect.width;
+      const height = rect.height;
+      const margin = { left: 50, right: 20, top: 20, bottom: 40 };
+      const plotWidth = width - margin.left - margin.right;
+      const plotHeight = height - margin.top - margin.bottom;
+      if (plotWidth <= 0 || plotHeight <= 0) return;
+      const centerY = margin.top + plotHeight / 2;
 
-    // Get current stroke samples
-    const strokeSamples = samples
-      .filter(s => s.t !== undefined && s.surgeHP !== undefined)
-      .map(s => ({
-        t: s.t,
-        surge: s.surgeHP!,
-        inDrive: s.inDrive || false,
-      }));
+      // Clear canvas
+      ctx.clearRect(0, 0, width, height);
 
-    if (strokeSamples.length === 0) {
-      // Draw empty grid
-      drawGrid(ctx, margin, plotWidth, plotHeight, centerY, 0, 0, 0);
-      return;
-    }
+      // Get current stroke samples
+      const strokeSamples = samples
+        .filter(s => s.t !== undefined && s.surgeHP !== undefined)
+        .map(s => ({
+          t: s.t,
+          surge: s.surgeHP!,
+          inDrive: s.inDrive || false,
+        }));
 
-    // Group samples by stroke (detect catch transitions from recovery to drive)
-    const strokes = groupByStrokes(strokeSamples);
-
-    if (strokes.length === 0) {
-      drawGrid(ctx, margin, plotWidth, plotHeight, centerY, 0, 0, 0);
-      return;
-    }
-
-    // Find max surge for scaling
-    const allSurges = strokeSamples.map(s => s.surge);
-    const maxSurge = Math.max(...allSurges.map(Math.abs), 1);
-
-    // Find max stroke duration for x-axis scaling
-    const strokeDurations = strokes.map(s => {
-      if (s.length < 2) return 0;
-      return s[s.length - 1].t - s[0].t;
-    });
-    const maxDuration = Math.max(...strokeDurations, 1000); // At least 1 second
-
-    // Draw background grid
-    drawGrid(ctx, margin, plotWidth, plotHeight, centerY, maxSurge, maxSurge, maxDuration);
-
-    // Draw historical strokes
-    const numStrokes = Math.min(strokes.length, historyStrokes + 1);
-    for (let i = 0; i < numStrokes - 1; i++) {
-      const strokeIndex = strokes.length - numStrokes + i;
-      if (strokeIndex >= 0) {
-        const opacity = (trailOpacity / 100) * ((i + 1) / numStrokes);
-        drawStroke(ctx, strokes[strokeIndex], margin, plotWidth, plotHeight, centerY, maxSurge, maxDuration, opacity);
+      if (strokeSamples.length === 0) {
+        // Draw empty grid
+        drawGrid(ctx, margin, plotWidth, plotHeight, centerY, 0, 0, 0);
+        return;
       }
-    }
 
-    // Draw current stroke (most recent)
-    if (strokes.length > 0) {
-      drawStroke(ctx, strokes[strokes.length - 1], margin, plotWidth, plotHeight, centerY, maxSurge, maxDuration, 1.0);
-    }
+      // Group samples by stroke (detect catch transitions from recovery to drive)
+      const strokes = groupByStrokes(strokeSamples);
 
-    // Draw ideal pattern overlay
-    drawIdealPattern(ctx, margin, plotWidth, plotHeight, centerY, maxSurge, maxDuration);
+      if (strokes.length === 0) {
+        drawGrid(ctx, margin, plotWidth, plotHeight, centerY, 0, 0, 0);
+        return;
+      }
 
+      // Find max surge for scaling
+      const allSurges = strokeSamples.map(s => s.surge);
+      const maxSurge = Math.max(...allSurges.map(Math.abs), 1);
+
+      // Find max stroke duration for x-axis scaling
+      const strokeDurations = strokes.map(s => {
+        if (s.length < 2) return 0;
+        return s[s.length - 1].t - s[0].t;
+      });
+      const maxDuration = Math.max(...strokeDurations, 1000); // At least 1 second
+
+      // Draw background grid
+      drawGrid(ctx, margin, plotWidth, plotHeight, centerY, maxSurge, maxSurge, maxDuration);
+
+      // Draw historical strokes
+      const numStrokes = Math.min(strokes.length, historyStrokes + 1);
+      for (let i = 0; i < numStrokes - 1; i++) {
+        const strokeIndex = strokes.length - numStrokes + i;
+        if (strokeIndex >= 0) {
+          const opacity = (trailOpacity / 100) * ((i + 1) / numStrokes);
+          drawStroke(ctx, strokes[strokeIndex], margin, plotWidth, plotHeight, centerY, maxSurge, maxDuration, opacity);
+        }
+      }
+
+      // Draw current stroke (most recent)
+      if (strokes.length > 0) {
+        drawStroke(ctx, strokes[strokes.length - 1], margin, plotWidth, plotHeight, centerY, maxSurge, maxDuration, 1.0);
+      }
+
+      // Draw ideal pattern overlay
+      drawIdealPattern(ctx, margin, plotWidth, plotHeight, centerY, maxSurge, maxDuration);
+    };
+
+    draw();
+
+    const observer = new ResizeObserver(() => draw());
+    observer.observe(canvas);
+    return () => observer.disconnect();
   }, [samples, historyStrokes, trailOpacity]);
 
   return (
     <div className="polar-plot-container">
       <canvas ref={canvasRef} className="polar-canvas" />
       <div className="chart-legend compact">
-        <span className="legend-item drive">■ Drive (Acceleration)</span>
-        <span className="legend-item recovery">■ Recovery (Deceleration)</span>
-        <span className="legend-item ideal">⋯ Ideal Pattern</span>
+        <span className="legend-item drive">■ Drive</span>
+        <span className="legend-item recovery">■ Recovery</span>
+        <span className="legend-item ideal">⋯ Ideal</span>
       </div>
     </div>
   );
