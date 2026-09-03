@@ -148,8 +148,8 @@ function App() {
   // uses, so on-water feedback and post-session analysis agree.
   const pipelineRef = useRef(new RowingPipeline());
 
-  // Keep the screen awake during a session and expose whether it's holding, so
-  // the UI can prompt the athlete to keep the app in the foreground.
+  // Keep the screen awake during a session. First-run help explains that the
+  // athlete must keep the app in the foreground; later sessions stay quiet.
   const { isSupported: wakeLockSupported, isActive: wakeLockActive } = useWakeLock();
 
   // Track background/screen-lock interruptions while recording so gaps in the
