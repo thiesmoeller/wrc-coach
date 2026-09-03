@@ -1,4 +1,7 @@
+import { useCallback, useState } from 'react';
 import './KeepAwakeNotice.css';
+
+export const KEEP_AWAKE_INTRO_KEY = 'wrc_keep_awake_intro_seen';
 
 interface KeepAwakeNoticeProps {
   recording: boolean;
@@ -16,46 +19,77 @@ function formatDuration(ms: number): string {
   return `${m}m ${s.toString().padStart(2, '0')}s`;
 }
 
+function hasSeenIntro(): boolean {
+  try {
+    return localStorage.getItem(KEEP_AWAKE_INTRO_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function markIntroSeen(): void {
+  try {
+    localStorage.setItem(KEEP_AWAKE_INTRO_KEY, '1');
+  } catch {
+    // Private mode — the intro will reappear next visit.
+  }
+}
+
 /**
- * On-screen guidance shown while recording. Because a backgrounded web app can't
- * read the phone's sensors, the athlete must keep WRC Coach open. This notice
- * (1) tells them the screen is being kept awake and to keep the app in the
- * foreground, and (2) flags any interruptions that already happened so missing
- * data is visible rather than silent.
+ * First-run keep-awake help, plus a compact alert if a recording is interrupted.
+ *
+ * The keep-awake guidance used to sit in the live layout on every session and
+ * stole vertical space on phones. It now shows once per device as an intro.
+ * Interruption alerts still appear when sensor data was actually lost.
  */
 export function KeepAwakeNotice({
   recording,
   wakeLockSupported,
-  wakeLockActive,
   interruptionCount,
   totalHiddenMs,
 }: KeepAwakeNoticeProps) {
-  if (!recording) return null;
+  const [showIntro, setShowIntro] = useState(() => !hasSeenIntro());
 
-  const statusClass = wakeLockActive ? 'ok' : 'warn';
-  const statusText = wakeLockActive
-    ? 'Screen kept awake'
-    : wakeLockSupported
-      ? 'Keeping screen awake…'
-      : 'Screen-awake unavailable — keep your screen on';
+  const dismissIntro = useCallback(() => {
+    markIntroSeen();
+    setShowIntro(false);
+  }, []);
+
+  const showInterruption = recording && interruptionCount > 0;
+
+  if (!showIntro && !showInterruption) return null;
 
   return (
-    <div className="keep-awake-notice" role="status" aria-live="polite">
-      <div className="keep-awake-row">
-        <span className={`keep-awake-dot ${statusClass}`} aria-hidden="true" />
-        <span className="keep-awake-status">{statusText}</span>
-        <span className="keep-awake-hint">
-          Keep WRC Coach open — locking the screen or switching apps pauses recording.
-        </span>
-      </div>
-
-      {interruptionCount > 0 && (
-        <div className="keep-awake-alert" role="alert">
-          ⚠️ Recording interrupted {interruptionCount}{' '}
-          {interruptionCount === 1 ? 'time' : 'times'} ({formatDuration(totalHiddenMs)} in the
-          background). Sensor data is missing for those gaps.
+    <>
+      {showIntro && (
+        <div className="keep-awake-intro-overlay" role="dialog" aria-labelledby="keep-awake-intro-title" aria-modal="true">
+          <div className="keep-awake-intro">
+            <h2 id="keep-awake-intro-title">Keep WRC Coach open</h2>
+            <p>
+              {wakeLockSupported
+                ? 'This app keeps the screen awake while you row so sensors stay live.'
+                : 'This phone cannot keep the screen awake automatically — leave the screen on while you row.'}
+            </p>
+            <p>
+              Locking the phone or switching apps pauses recording and leaves gaps in the data.
+              Keep WRC Coach in the foreground for the whole session.
+            </p>
+            <button type="button" className="keep-awake-intro-btn" onClick={dismissIntro}>
+              Got it
+            </button>
+          </div>
         </div>
       )}
-    </div>
+
+      {showInterruption && (
+        <div className="keep-awake-notice" role="status" aria-live="polite">
+          <div className="keep-awake-alert" role="alert">
+            ⚠️ Recording interrupted {interruptionCount}{' '}
+            {interruptionCount === 1 ? 'time' : 'times'} ({formatDuration(totalHiddenMs)} in the
+            background). Sensor data is missing for those gaps.
+          </div>
+        </div>
+      )}
+    </>
   );
 }
