@@ -112,4 +112,49 @@ describe('RowingPipeline (integration)', () => {
     expect(pipe.speed.getDistance()).toBeGreaterThan(200);
     expect(pipe.speed.getDistance()).toBeLessThan(300);
   });
+
+  it('recovers strokes with the phone yawed 180° (rower facing stern) and with light paddling', () => {
+    // No rower/coxswain setting, no catch/finish thresholds, no static
+    // calibration: the PCA axis + skewness sign + adaptive detector must
+    // recover cadence from the IMU alone.
+    const rowerFacingStern = generateSyntheticRow({
+      strokeRate: 24,
+      durationS: 90,
+      mountYawDeg: 180,
+      mountPitchDeg: 22,
+      mountRollDeg: 8,
+      boatHeadingDeg: 125,
+    });
+    const rowerPipe = new RowingPipeline();
+    for (const s of rowerFacingStern.imu) {
+      rowerPipe.processIMU(s.t, s.ax, s.ay, s.az, s.gx, s.gy, s.gz);
+    }
+    const rowerSettled = rowerPipe.getStrokes().filter(
+      (st) => st.catchTime > rowerFacingStern.imu[0].t + 8000 && st.strokeRate > 0,
+    );
+    expect(rowerSettled.length).toBeGreaterThan(20);
+    const rowerRate =
+      rowerSettled.reduce((a, st) => a + st.strokeRate, 0) / rowerSettled.length;
+    expect(rowerRate).toBeGreaterThan(22);
+    expect(rowerRate).toBeLessThan(26);
+
+    const light = generateSyntheticRow({
+      strokeRate: 22,
+      durationS: 90,
+      driveAccelPeak: 0.9,
+      mountYawDeg: 180,
+    });
+    const lightPipe = new RowingPipeline();
+    for (const s of light.imu) {
+      lightPipe.processIMU(s.t, s.ax, s.ay, s.az, s.gx, s.gy, s.gz);
+    }
+    const lightSettled = lightPipe.getStrokes().filter(
+      (st) => st.catchTime > light.imu[0].t + 8000 && st.strokeRate > 0,
+    );
+    expect(lightSettled.length).toBeGreaterThan(18);
+    const lightRate =
+      lightSettled.reduce((a, st) => a + st.strokeRate, 0) / lightSettled.length;
+    expect(lightRate).toBeGreaterThan(20);
+    expect(lightRate).toBeLessThan(24);
+  });
 });

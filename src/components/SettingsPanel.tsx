@@ -1,18 +1,15 @@
 import { AppSettings } from '../hooks/useSettings';
-import { CalibrationPanel } from './CalibrationPanel';
-import { MotionData } from '../hooks/useDeviceMotion';
 import './SettingsPanel.css';
 
 interface SettingsPanelProps {
   isOpen: boolean;
   onClose: () => void;
-  motionData?: MotionData | null;
   settings: AppSettings;
   updateSettings: (updates: Partial<AppSettings>) => void;
   resetSettings: () => void;
 }
 
-export function SettingsPanel({ isOpen, onClose, motionData, settings, updateSettings, resetSettings }: SettingsPanelProps) {
+export function SettingsPanel({ isOpen, onClose, settings, updateSettings, resetSettings }: SettingsPanelProps) {
 
   if (!isOpen) return null;
 
@@ -31,11 +28,6 @@ export function SettingsPanel({ isOpen, onClose, motionData, settings, updateSet
         </div>
 
         <div className="settings-content">
-          {/* Calibration Settings */}
-          <div className="settings-section">
-            <CalibrationPanel motionData={motionData || null} />
-          </div>
-
           {/* Visualization Settings */}
           <div className="settings-section">
             <h3>Visualization</h3>
@@ -89,45 +81,6 @@ export function SettingsPanel({ isOpen, onClose, motionData, settings, updateSet
             </div>
           </div>
 
-          {/* Detection Settings */}
-          <div className="settings-section">
-            <h3>Stroke Detection</h3>
-
-            <div className="setting-item">
-              <label htmlFor="catchThreshold">Catch Threshold</label>
-              <div className="setting-control">
-                <input
-                  type="range"
-                  id="catchThreshold"
-                  min="0.3"
-                  max="1.2"
-                  value={settings.catchThreshold}
-                  step="0.1"
-                  onChange={(e) => updateSettings({ catchThreshold: parseFloat(e.target.value) })}
-                />
-                <span>{settings.catchThreshold.toFixed(1)} m/s²</span>
-              </div>
-              <p className="setting-help">When surge exceeds this, drive phase starts (new stroke begins)</p>
-            </div>
-
-            <div className="setting-item">
-              <label htmlFor="finishThreshold">Finish Threshold</label>
-              <div className="setting-control">
-                <input
-                  type="range"
-                  id="finishThreshold"
-                  min="-0.8"
-                  max="-0.1"
-                  value={settings.finishThreshold}
-                  step="0.1"
-                  onChange={(e) => updateSettings({ finishThreshold: parseFloat(e.target.value) })}
-                />
-                <span>{settings.finishThreshold.toFixed(1)} m/s²</span>
-              </div>
-              <p className="setting-help">When surge drops below this, recovery phase starts (drive ends)</p>
-            </div>
-          </div>
-
           {/* Data Settings */}
           <div className="settings-section">
             <h3>Data Recording</h3>
@@ -176,22 +129,6 @@ export function SettingsPanel({ isOpen, onClose, motionData, settings, updateSet
                 )}
               </p>
             </div>
-
-            <div className="setting-item">
-              <label htmlFor="phoneOrientation">Phone Orientation</label>
-              <div className="setting-control">
-                <select
-                  id="phoneOrientation"
-                  className="orientation-select"
-                  value={settings.phoneOrientation}
-                  onChange={(e) => updateSettings({ phoneOrientation: e.target.value as 'rower' | 'coxswain' })}
-                >
-                  <option value="rower">🚣 Rower (facing stern)</option>
-                  <option value="coxswain">🧭 Coxswain (facing bow)</option>
-                </select>
-              </div>
-              <p className="setting-help">Select your position: rower faces backward, coxswain faces forward</p>
-            </div>
           </div>
 
           {/* Reset Button */}
@@ -238,4 +175,3 @@ export function SettingsPanel({ isOpen, onClose, motionData, settings, updateSet
     </>
   );
 }
-

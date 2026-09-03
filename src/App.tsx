@@ -9,7 +9,7 @@ import { PolarPlot } from './components/PolarPlot';
 import { StabilityPlot } from './components/StabilityPlot';
 import { UpdateNotification } from './components/UpdateNotification';
 import { KeepAwakeNotice } from './components/KeepAwakeNotice';
-import { useSettings, useDeviceMotion, useDeviceOrientation, useGeolocation, useWakeLock, useBackgroundInterruptions, useCalibration, useSessionStorage, type MotionData, type GPSData, type OrientationData } from './hooks';
+import { useSettings, useDeviceMotion, useDeviceOrientation, useGeolocation, useWakeLock, useBackgroundInterruptions, useSessionStorage, type MotionData, type GPSData, type OrientationData } from './hooks';
 import { RowingPipeline } from './lib/analysis';
 import { convertToSplitTime } from './utils/conversions';
 import './App.css';
@@ -42,7 +42,6 @@ interface Sample {
 
 function App() {
   const { settings, updateSettings, resetSettings } = useSettings();
-  const { calibrationData } = useCalibration();
   const { sessions, isLoading, saveSession, saveSessionIncremental, deleteSession, clearAllSessions, getSessionBinary } = useSessionStorage();
   const [isRunning, setIsRunning] = useState(false);
   const isRunningRef = useRef(false); // Ref to track isRunning for callbacks
@@ -62,7 +61,6 @@ function App() {
   
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
   const sessionStartTimeRef = useRef<number | null>(null); // Ref to track session start time
-  const [latestMotionData, setLatestMotionData] = useState<MotionData | null>(null);
   const currentSessionIdRef = useRef<string | null>(null); // Track current session ID for batch writes
   const writeCheckIntervalRef = useRef<number | null>(null); // Check for write every second
   
@@ -177,9 +175,6 @@ function App() {
 
   // Handle IMU data
   const handleMotion = useCallback((data: MotionData) => {
-    // Always store latest motion data for calibration
-    setLatestMotionData(data);
-    
     // Track sensor status
     const now = performance.now();
     imuLastTimeRef.current = now;
@@ -306,7 +301,8 @@ function App() {
     setTotalSampleCount(prev => prev + 1);
   }, [isRunning, limitUISamples]);
 
-  // Setup sensors - always enabled for calibration
+  // Setup sensors — IMU stays on so the header can show live sensor status
+  // even before a session starts.
   // IMU/Gyro: Event-driven, typically 50-100 Hz (device dependent, includes 60 Hz)
   useDeviceMotion({ onMotion: handleMotion, enabled: true, demoMode: settings.demoMode });
   
@@ -438,11 +434,7 @@ function App() {
         maxSpeed: metrics.maxSpeed,
         totalDistance: metrics.totalDistance,
         strokeCount: metrics.strokeCount,
-        phoneOrientation: settings.phoneOrientation,
         demoMode: settings.demoMode,
-        catchThreshold: settings.catchThreshold,
-        finishThreshold: settings.finishThreshold,
-        calibrationData,
       });
       
       // Write finished - reposition pointers
@@ -453,7 +445,7 @@ function App() {
       console.error('[App] Failed to write to flash:', error);
       // Don't clear on error - will retry
     }
-  }, [saveSessionIncremental, calculateCurrentMetrics, settings, calibrationData, estimateBinarySize]);
+  }, [saveSessionIncremental, calculateCurrentMetrics, settings, estimateBinarySize]);
   
   // Start session
   const handleStart = useCallback(async () => {
@@ -528,11 +520,7 @@ function App() {
             maxSpeed: metrics.maxSpeed,
             totalDistance: metrics.totalDistance,
             strokeCount: metrics.strokeCount,
-            phoneOrientation: settings.phoneOrientation,
             demoMode: settings.demoMode,
-            catchThreshold: settings.catchThreshold,
-            finishThreshold: settings.finishThreshold,
-            calibrationData,
           });
           
           // Reposition pointers
@@ -563,11 +551,7 @@ function App() {
           maxSpeed: metrics.maxSpeed,
           totalDistance: metrics.totalDistance,
           strokeCount: metrics.strokeCount,
-          phoneOrientation: settings.phoneOrientation,
           demoMode: settings.demoMode,
-          catchThreshold: settings.catchThreshold,
-          finishThreshold: settings.finishThreshold,
-          calibrationData,
         });
           console.log('Session saved successfully!');
         }
@@ -578,7 +562,7 @@ function App() {
         setTotalSampleCount(0);
       }
     }
-  }, [sessionStartTime, saveSessionIncremental, calculateCurrentMetrics, calibrationData, settings]);
+  }, [sessionStartTime, saveSession, saveSessionIncremental, calculateCurrentMetrics, settings]);
 
 
   const splitTime = convertToSplitTime(fusedVelocity);
@@ -663,7 +647,6 @@ function App() {
       <SettingsPanel 
         isOpen={settingsPanelOpen} 
         onClose={() => setSettingsPanelOpen(false)}
-        motionData={latestMotionData}
         settings={settings}
         updateSettings={updateSettings}
         resetSettings={resetSettings}
