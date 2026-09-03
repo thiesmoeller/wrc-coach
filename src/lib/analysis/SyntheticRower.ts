@@ -23,6 +23,7 @@ export interface SyntheticConfig {
   rateHz?: number;
   mountPitchDeg?: number;   // phone tilt in the boat
   mountRollDeg?: number;
+  mountYawDeg?: number;     // phone heading in the boat (180 = rower facing stern)
   boatHeadingDeg?: number;  // boat yaw in the world (tests PCA robustness)
   rollAmpDeg?: number;      // boat set oscillation amplitude
   driveAccelPeak?: number;  // m/s² peak surge during the drive
@@ -45,6 +46,7 @@ const DEFAULTS: Required<SyntheticConfig> = {
   rateHz: 50,
   mountPitchDeg: 18,
   mountRollDeg: -6,
+  mountYawDeg: 0,
   boatHeadingDeg: 40,
   rollAmpDeg: 3,
   driveAccelPeak: 3.2,
@@ -148,7 +150,10 @@ export function generateSyntheticRow(config: SyntheticConfig = {}): SyntheticDat
 
   // Static boat/phone geometry.
   const Rwb_yaw = rotZ(cfg.boatHeadingDeg * D2R);
-  const Rbp = mul(rotY(cfg.mountPitchDeg * D2R), rotX(cfg.mountRollDeg * D2R));
+  const Rbp = mul(
+    rotZ(cfg.mountYawDeg * D2R),
+    mul(rotY(cfg.mountPitchDeg * D2R), rotX(cfg.mountRollDeg * D2R)),
+  );
 
   const imu: MotionData[] = [];
   const truthRollDeg: number[] = [];

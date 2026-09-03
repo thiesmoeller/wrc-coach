@@ -75,11 +75,6 @@ export const StatisticsPanel: React.FC<Props> = ({ sessionData, analysisResults 
         </div>
 
         <div className="stat-card">
-          <div className="stat-label">Phone Position</div>
-          <div className="stat-value">{metadata.phoneOrientation}</div>
-        </div>
-
-        <div className="stat-card">
           <div className="stat-label">Format Version</div>
           <div className="stat-value">V{metadata.version}</div>
         </div>

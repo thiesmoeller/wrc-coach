@@ -1,6 +1,5 @@
 import React, { useState, useCallback } from 'react';
 import type { SessionData, AnalysisResults } from './types';
-import type { AnalysisParams } from './lib/DataAnalyzer';
 import { BinaryDataReader } from './lib/BinaryDataReader';
 import { DataAnalyzer } from './lib/DataAnalyzer';
 import { TimeSeriesPlot } from './components/TimeSeriesPlot';
@@ -111,13 +110,6 @@ function interpolateNaN(values: number[], isAngle = false): number[] {
 function App() {
   const [sessionData, setSessionData] = useState<SessionData | null>(null);
   const [analysisResults, setAnalysisResults] = useState<AnalysisResults | null>(null);
-  const [params, setParams] = useState<AnalysisParams>({
-    lowCutFreq: 0.3,
-    highCutFreq: 1.2,
-    sampleRate: 50,
-    catchThreshold: 0.6,
-    finishThreshold: -0.3,
-  });
   const [activeTab, setActiveTab] = useState<'overview' | 'strokes' | 'gps' | 'raw' | 'pwa-preview'>('overview');
   const [fileName, setFileName] = useState<string>('');
   
@@ -155,8 +147,8 @@ function App() {
           'pwa-preview': { min: null, max: null },
         });
 
-        // Perform initial analysis
-        const results = DataAnalyzer.analyze(data, params);
+        // Perform analysis with the shared data-driven pipeline
+        const results = DataAnalyzer.analyze(data);
         setAnalysisResults(results);
       } catch (error) {
         alert(`Error reading file: ${error}`);
@@ -164,16 +156,7 @@ function App() {
       }
     };
     reader.readAsArrayBuffer(file);
-  }, [params]);
-
-  // Re-analyze when parameters change
-  const handleParamsChange = useCallback((newParams: AnalysisParams) => {
-    setParams(newParams);
-    if (sessionData) {
-      const results = DataAnalyzer.analyze(sessionData, newParams);
-      setAnalysisResults(results);
-    }
-  }, [sessionData]);
+  }, []);
 
   // Handle zoom change from plots
   const handleZoomChange = useCallback((min: number | null, max: number | null) => {
@@ -215,7 +198,7 @@ function App() {
         <div className="main-content">
           {/* Sidebar */}
           <aside className="sidebar">
-            <ParameterPanel params={params} onParamsChange={handleParamsChange} />
+            <ParameterPanel />
             <div style={{ marginTop: '20px' }}>
               <CacheInfoPanel />
             </div>
@@ -272,13 +255,13 @@ function App() {
                       timeVector={analysisResults.timeVector}
                       series={[
                         {
-                          name: 'Raw',
+                          name: 'Linear surge',
                           data: analysisResults.rawAcceleration,
                           color: '#ccc',
                           width: 1,
                         },
                         {
-                          name: 'Filtered',
+                          name: 'Band-pass surge',
                           data: analysisResults.filteredAcceleration,
                           color: '#0066cc',
                           width: 2,
@@ -298,7 +281,7 @@ function App() {
                           shape: 'triangle-down',
                         },
                       ]}
-                      yLabel="Fore-aft Acceleration (m/s²)"
+                      yLabel="Surge acceleration (m/s²)"
                       height={350}
                       xRange={xZoomRanges.overview}
                       onZoomChange={handleZoomChange}
@@ -317,7 +300,7 @@ function App() {
                       timeVector={analysisResults.timeVector}
                       series={[
                         {
-                          name: 'Filtered ay',
+                          name: 'Surge (band-pass)',
                           data: analysisResults.filteredAcceleration,
                           color: '#0066cc',
                           width: 2,
@@ -532,7 +515,7 @@ function App() {
             <p>Load a <code>.wrcdata</code> file to get started with analyzing your rowing session data.</p>
             <ul>
               <li>📊 View comprehensive stroke analysis</li>
-              <li>🎯 Tune filter and detection parameters in real-time</li>
+              <li>🎯 Stroke detection inferred from the IMU (no manual thresholds)</li>
               <li>🗺️ Visualize GPS routes with speed coloring</li>
               <li>📈 Explore raw sensor data</li>
             </ul>

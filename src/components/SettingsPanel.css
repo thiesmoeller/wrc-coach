@@ -197,23 +197,6 @@
   accent-color: #3b82f6;
 }
 
-.orientation-select {
-  width: 100%;
-  padding: 0.75rem;
-  border: 2px solid #e5e7eb;
-  border-radius: 8px;
-  font-size: 1rem;
-  font-weight: 500;
-  background: white;
-  cursor: pointer;
-  transition: border-color 0.2s;
-}
-
-.orientation-select:focus {
-  outline: none;
-  border-color: #3b82f6;
-}
-
 .full-width {
   width: 100%;
 }
@@ -282,16 +265,6 @@
 
   .setting-help {
     color: #9ca3af;
-  }
-
-  .orientation-select {
-    background: #374151;
-    border-color: #4b5563;
-    color: #d1d5db;
-  }
-
-  .orientation-select:focus {
-    border-color: #3b82f6;
   }
 
   .version-info {
