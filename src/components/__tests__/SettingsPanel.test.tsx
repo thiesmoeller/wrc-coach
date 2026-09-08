@@ -40,5 +40,7 @@ describe('SettingsPanel', () => {
 
     expect(screen.getByText('Visualization')).toBeInTheDocument();
     expect(screen.getByLabelText('Demo Mode (Simulated Data)')).toBeInTheDocument();
+    expect(screen.getByText('Git Commit:')).toBeInTheDocument();
+    expect(screen.getByText('abc123')).toBeInTheDocument();
   });
 });

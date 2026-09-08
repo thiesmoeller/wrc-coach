@@ -37,6 +37,11 @@ jobs:
           context: .
           push: true
           platforms: linux/arm64
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
+            GIT_BRANCH=${{ github.ref_name }}
+            GIT_TAG=${{ github.ref_type == 'tag' && github.ref_name || '' }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
           tags: ghcr.io/${{ steps.string_case.outputs.lowercase }}:latest
 
       - name: Trigger CapRover Deployment
