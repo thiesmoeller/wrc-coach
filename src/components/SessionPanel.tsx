@@ -12,6 +12,7 @@ interface SessionPanelProps {
   deleteSession: (sessionId: string) => Promise<void>;
   clearAllSessions: () => Promise<void>;
   getSessionBinary: (sessionId: string) => Promise<ArrayBuffer | null>;
+  getSessionFormatVersion?: (sessionId: string) => Promise<number>;
   isLoading?: boolean;
 }
 
@@ -24,26 +25,13 @@ export function SessionPanel({
   deleteSession, 
   clearAllSessions,
   getSessionBinary,
+  getSessionFormatVersion,
   isLoading = false,
 }: SessionPanelProps) {
   const [confirmDelete, setConfirmDelete] = useState<{ show: boolean; sessionId?: string }>({ show: false });
   const [confirmClearAll, setConfirmClearAll] = useState(false);
   const [exportingId, setExportingId] = useState<string | null>(null);
   const [sessionVersions, setSessionVersions] = useState<Record<string, number>>({});
-
-  // Helper function to detect file format version from binary data
-  const detectVersion = (buffer: ArrayBuffer): number => {
-    const view = new DataView(buffer);
-    let magic = '';
-    for (let i = 0; i < 16; i++) {
-      const char = view.getUint8(i);
-      if (char !== 0) magic += String.fromCharCode(char);
-    }
-    if (magic.startsWith('WRC_COACH_V3')) return 3;
-    if (magic.startsWith('WRC_COACH_V2')) return 2;
-    if (magic.startsWith('WRC_COACH_V1')) return 1;
-    return 0; // Unknown
-  };
 
   // Load versions for all sessions when panel opens
   // NOTE: This hook must be called BEFORE any early returns to follow Rules of Hooks
@@ -54,9 +42,11 @@ export function SessionPanel({
       const versions: Record<string, number> = {};
       for (const session of sessions) {
         try {
-          const buffer = await getSessionBinary(session.id);
-          if (buffer) {
-            versions[session.id] = detectVersion(buffer);
+          const version = getSessionFormatVersion
+            ? await getSessionFormatVersion(session.id)
+            : 0;
+          if (version) {
+            versions[session.id] = version;
           }
         } catch (error) {
           console.error(`Failed to detect version for session ${session.id}:`, error);
@@ -66,7 +56,7 @@ export function SessionPanel({
     };
     
     loadVersions();
-  }, [isOpen, sessions, getSessionBinary]);
+  }, [isOpen, sessions, getSessionFormatVersion]);
 
   if (!isOpen) return null;
 
@@ -78,13 +68,15 @@ export function SessionPanel({
       
       // Get binary data directly from IndexedDB (no need to reconstruct)
       const buffer = await getSessionBinary(session.id);
-      if (!buffer) {
-        console.error('Failed to get session binary data');
-        alert('Failed to export session. Please try again.');
+      if (!buffer || buffer.byteLength < 128) {
+        console.error('Failed to get session binary data', { bytes: buffer?.byteLength ?? 0 });
+        alert(
+          'Failed to export session: no sample data is stored for this recording (size 0). The session listing is only metadata — Share needs the binary chunks on this phone.'
+        );
         return;
       }
 
-      const blob = new Blob([buffer], { type: 'application/octet-stream' });
+      const blob = new Blob([new Uint8Array(buffer)], { type: 'application/octet-stream' });
     
       // Try Web Share API first (mobile)
       if (navigator.share) {
@@ -130,11 +122,15 @@ export function SessionPanel({
       const a = document.createElement('a');
       a.href = url;
       a.download = filename;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error exporting session:', error);
-      alert('Failed to export session. Please try again.');
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      alert(`Failed to export session: ${message}`);
     } finally {
       setExportingId(null);
     }

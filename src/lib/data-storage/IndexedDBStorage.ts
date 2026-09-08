@@ -98,6 +98,29 @@ export class IndexedDBStorage {
     }
     return this.db;
   }
+
+  close(): void {
+    if (this.db) {
+      this.db.close();
+      this.db = null;
+    }
+  }
+
+  private toArrayBuffer(data: unknown): ArrayBuffer | null {
+    if (data == null) return null;
+    if (data instanceof ArrayBuffer && data.byteLength > 0) {
+      return data;
+    }
+    try {
+      const bytes = new Uint8Array(data as ArrayBuffer);
+      if (bytes.byteLength === 0) return null;
+      const copy = new Uint8Array(bytes.byteLength);
+      copy.set(bytes);
+      return copy.buffer;
+    } catch {
+      return null;
+    }
+  }
   
   /**
    * Process samples and create binary data (helper method)
@@ -379,6 +402,7 @@ export class IndexedDBStorage {
       chunkIndex,
       timestamp: Date.now(),
       sampleCount: samples.length,
+      dataSize: binaryData.byteLength,
       binaryData,
     };
     
@@ -408,22 +432,17 @@ export class IndexedDBStorage {
    */
   private async getNextChunkIndex(db: IDBDatabase, sessionId: string): Promise<number> {
     return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(CHUNKS_STORE_NAME)) {
+        resolve(0);
+        return;
+      }
       const transaction = db.transaction([CHUNKS_STORE_NAME], 'readonly');
       const store = transaction.objectStore(CHUNKS_STORE_NAME);
       const index = store.index('sessionId');
-      const request = index.getAll(sessionId);
-      
-      request.onsuccess = () => {
-        const chunks = request.result;
-        const maxIndex = chunks.length > 0 
-          ? Math.max(...chunks.map((c: any) => c.chunkIndex || 0))
-          : -1;
-        resolve(maxIndex + 1);
-      };
-      
-      request.onerror = () => {
-        reject(request.error);
-      };
+      // Count keys only — getAll() would load every chunk blob on each 1s flush.
+      const request = index.count(IDBKeyRange.only(sessionId));
+      request.onsuccess = () => resolve(request.result || 0);
+      request.onerror = () => reject(request.error);
     });
   }
   
@@ -437,7 +456,7 @@ export class IndexedDBStorage {
       const transaction = db.transaction([CHUNKS_STORE_NAME], 'readonly');
       const store = transaction.objectStore(CHUNKS_STORE_NAME);
       const index = store.index('sessionId');
-      const request = index.getAll(sessionId);
+      const request = index.getAll(IDBKeyRange.only(sessionId));
       
       request.onsuccess = () => {
         const chunks = request.result.sort((a: any, b: any) => a.chunkIndex - b.chunkIndex);
@@ -521,73 +540,152 @@ export class IndexedDBStorage {
    */
   async getAllSessionMetadata(): Promise<SessionMetadataStorage[]> {
     const db = await this.ensureDB();
-    
-    return new Promise((resolve, reject) => {
+
+    const sessions = await new Promise<any[]>((resolve, reject) => {
       const transaction = db.transaction([STORE_NAME], 'readonly');
       const store = transaction.objectStore(STORE_NAME);
       const request = store.getAll();
-      
-      request.onsuccess = async () => {
-        // Return only metadata, excluding binaryData
-        const sessions = await Promise.all(
-          request.result.map(async (session: any) => {
-            const { binaryData, ...metadata } = session;
-            
-            // If session uses chunks, update sample count from chunks
-            try {
-              const chunks = await this.getSessionChunksMetadata(db, metadata.id);
-              if (chunks.length > 0) {
-                metadata.sampleCount = chunks.reduce((sum, chunk) => sum + chunk.sampleCount, 0);
-              }
-            } catch (e) {
-              // Ignore if chunks don't exist
-            }
-            
-            return metadata;
-          })
-        );
-        resolve(sessions);
-      };
-      
+      request.onsuccess = () => resolve(request.result || []);
       request.onerror = () => {
         console.error('Error getting sessions:', request.error);
         reject(request.error);
       };
     });
+
+    const result: SessionMetadataStorage[] = [];
+    for (const session of sessions) {
+      const { binaryData, ...metadata } = session;
+      const needsSizeRepair = !metadata.dataSize;
+      if (needsSizeRepair) {
+        try {
+          const chunks = await this.getSessionChunksMetadata(db, metadata.id);
+          if (chunks.chunkCount > 0) {
+            metadata.sampleCount = chunks.sampleCount;
+            metadata.dataSize = chunks.dataSize;
+            void this.persistRepairedSize(metadata.id, chunks.sampleCount, chunks.dataSize);
+          } else {
+            const legacySize = this.toArrayBuffer(binaryData)?.byteLength || 0;
+            if (legacySize > 0) {
+              metadata.dataSize = legacySize;
+            }
+          }
+        } catch (e) {
+          // Keep stored metadata if chunk inspection fails
+        }
+      }
+      result.push(metadata);
+    }
+    return result;
   }
   
   /**
-   * Get chunks metadata only (for counting samples)
+   * Aggregate chunk sample counts and byte sizes without holding every blob.
    */
-  private async getSessionChunksMetadata(db: IDBDatabase, sessionId: string): Promise<Array<{sampleCount: number}>> {
+  private async getSessionChunksMetadata(
+    db: IDBDatabase,
+    sessionId: string
+  ): Promise<{ sampleCount: number; dataSize: number; chunkCount: number }> {
+    const empty = { sampleCount: 0, dataSize: 0, chunkCount: 0 };
+    if (!db.objectStoreNames.contains(CHUNKS_STORE_NAME)) {
+      return empty;
+    }
+
     return new Promise((resolve, reject) => {
-      try {
-        const transaction = db.transaction([CHUNKS_STORE_NAME], 'readonly');
-        const store = transaction.objectStore(CHUNKS_STORE_NAME);
-        const index = store.index('sessionId');
-        const request = index.getAll(sessionId);
-        
-        request.onsuccess = () => {
-          const chunks = request.result || [];
-          resolve(chunks.map((c: any) => ({ sampleCount: c.sampleCount || 0 })));
-        };
-        
-        request.onerror = () => {
-          // If store doesn't exist yet, return empty array (not an error)
-          if (request.error?.name === 'NotFoundError' || !db.objectStoreNames.contains(CHUNKS_STORE_NAME)) {
-            resolve([]);
-          } else {
-            reject(request.error);
-          }
-        };
-      } catch (error) {
-        // If chunks store doesn't exist, return empty array
-        if (!db.objectStoreNames.contains(CHUNKS_STORE_NAME)) {
-          resolve([]);
+      const transaction = db.transaction([CHUNKS_STORE_NAME], 'readonly');
+      const store = transaction.objectStore(CHUNKS_STORE_NAME);
+      const index = store.index('sessionId');
+      const request = index.openCursor(IDBKeyRange.only(sessionId));
+      let sampleCount = 0;
+      let dataSize = 0;
+      let chunkCount = 0;
+
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (cursor) {
+          const value = cursor.value;
+          sampleCount += value.sampleCount || 0;
+          dataSize += value.dataSize || this.toArrayBuffer(value.binaryData)?.byteLength || 0;
+          chunkCount += 1;
+          cursor.continue();
         } else {
-          reject(error);
+          resolve({ sampleCount, dataSize, chunkCount });
         }
-      }
+      };
+      request.onerror = () => {
+        if (request.error?.name === 'NotFoundError') {
+          resolve(empty);
+        } else {
+          reject(request.error);
+        }
+      };
+    });
+  }
+
+  private async persistRepairedSize(
+    sessionId: string,
+    sampleCount: number,
+    dataSize: number
+  ): Promise<void> {
+    try {
+      const existingRecord = await this.getRawSessionRecord(sessionId);
+      if (!existingRecord) return;
+      const db = await this.ensureDB();
+      await new Promise<void>((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.put({
+          ...existingRecord,
+          sampleCount,
+          dataSize,
+        });
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      });
+    } catch (error) {
+      console.warn('Could not persist repaired session size:', error);
+    }
+  }
+
+  /**
+   * Raw chunk binaries for a session, oldest first.
+   */
+  private async getRawSessionChunks(sessionId: string): Promise<ArrayBuffer[]> {
+    const db = await this.ensureDB();
+    if (!db.objectStoreNames.contains(CHUNKS_STORE_NAME)) return [];
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([CHUNKS_STORE_NAME], 'readonly');
+      const store = transaction.objectStore(CHUNKS_STORE_NAME);
+      const index = store.index('sessionId');
+      const request = index.getAll(IDBKeyRange.only(sessionId));
+
+      request.onsuccess = () => {
+        const chunks = (request.result || []).sort(
+          (a: any, b: any) => (a.chunkIndex || 0) - (b.chunkIndex || 0)
+        );
+        resolve(
+          chunks
+            .map((c: any) => this.toArrayBuffer(c.binaryData))
+            .filter((b): b is ArrayBuffer => !!b)
+        );
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Full IndexedDB record including binaryData, if any.
+   */
+  private async getRawSessionRecord(sessionId: string): Promise<any | null> {
+    const db = await this.ensureDB();
+
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction([STORE_NAME], 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.get(sessionId);
+
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
     });
   }
   
@@ -643,23 +741,25 @@ export class IndexedDBStorage {
     
     return new Promise(async (resolve, reject) => {
       try {
-        // Get existing session metadata
-        const existing = await this.getSessionMetadataOnly(sessionId);
-        
-        // Calculate total sample count from chunks (if using chunks)
+        const existingRecord = await this.getRawSessionRecord(sessionId);
+        const existing = existingRecord
+          ? (({ binaryData, ...rest }: any) => rest)(existingRecord)
+          : null;
+
         let totalSampleCount = existing?.sampleCount || 0;
+        let totalDataSize = existingRecord?.binaryData?.byteLength || existing?.dataSize || 0;
         try {
           const chunks = await this.getSessionChunksMetadata(db, sessionId);
-          if (chunks && chunks.length > 0) {
-            totalSampleCount = chunks.reduce((sum, chunk) => sum + (chunk.sampleCount || 0), 0);
+          if (chunks.chunkCount > 0) {
+            totalSampleCount = chunks.sampleCount;
+            totalDataSize = chunks.dataSize;
           }
         } catch (e) {
-          // If chunks don't exist or error reading, use existing count
           console.warn('Could not read chunks metadata, using existing count:', e);
         }
-        
+
         const timestamp = existing?.timestamp || Date.now();
-        const storageData = {
+        const storageData: any = {
           id: sessionId,
           timestamp,
           sessionStartTime: metadata.sessionStartTime,
@@ -675,18 +775,21 @@ export class IndexedDBStorage {
           finishThreshold: metadata.finishThreshold,
           hasCalibrationData: !!metadata.calibrationData,
           sampleCount: totalSampleCount,
-          dataSize: existing?.dataSize || 0, // Will be updated on final save
+          dataSize: totalDataSize,
         };
-        
+        if (existingRecord?.binaryData) {
+          storageData.binaryData = existingRecord.binaryData;
+        }
+
         const transaction = db.transaction([STORE_NAME], 'readwrite');
         const store = transaction.objectStore(STORE_NAME);
         const request = store.put(storageData);
-        
+
         request.onsuccess = () => {
-          const { binaryData, ...resultMetadata } = storageData as any;
+          const { binaryData, ...resultMetadata } = storageData;
           resolve(resultMetadata);
         };
-        
+
         request.onerror = () => {
           reject(request.error);
         };
@@ -821,66 +924,73 @@ export class IndexedDBStorage {
   }
   
   /**
+   * Format version from the first chunk header only — do not merge the session.
+   */
+  async getSessionFormatVersion(sessionId: string): Promise<number> {
+    const db = await this.ensureDB();
+    if (db.objectStoreNames.contains(CHUNKS_STORE_NAME)) {
+      const version = await new Promise<number>((resolve, reject) => {
+        const transaction = db.transaction([CHUNKS_STORE_NAME], 'readonly');
+        const store = transaction.objectStore(CHUNKS_STORE_NAME);
+        const index = store.index('sessionId');
+        const request = index.openCursor(IDBKeyRange.only(sessionId));
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (!cursor) {
+            resolve(0);
+            return;
+          }
+          const buffer = this.toArrayBuffer(cursor.value?.binaryData);
+          resolve(buffer ? this.writer.peekVersion(buffer) : 0);
+        };
+        request.onerror = () => reject(request.error);
+      });
+      if (version) return version;
+    }
+
+    const record = await this.getRawSessionRecord(sessionId);
+    const legacy = this.toArrayBuffer(record?.binaryData);
+    if (legacy) return this.writer.peekVersion(legacy);
+    return 0;
+  }
+
+  /**
    * Get binary data for a session (for export)
-   * Merges chunks on-demand if session uses chunks
+   * Merges chunks on-demand by copying sample bytes (no JS object decode).
    */
   async getSessionBinary(sessionId: string): Promise<ArrayBuffer | null> {
     const db = await this.ensureDB();
-    
-    return new Promise(async (resolve, reject) => {
-      try {
-        // Check if session has chunks (new format)
-        const chunks = await this.getAllSessionChunks(sessionId);
-        
-        if (chunks.length > 0) {
-          // New format: merge chunks on-demand to create binary
-          const metadata = await this.getSessionMetadataOnly(sessionId);
-          if (!metadata) {
-            resolve(null);
-            return;
-          }
-          
-          // Process all chunks into binary format
-          const { binaryData } = this.processSamplesToBinary({
-            sessionStartTime: metadata.sessionStartTime,
-            duration: metadata.duration,
-            samples: chunks,
-            avgStrokeRate: metadata.avgStrokeRate,
-            avgDrivePercent: metadata.avgDrivePercent,
-            maxSpeed: metadata.maxSpeed,
-            totalDistance: metadata.totalDistance,
-            strokeCount: metadata.strokeCount,
-            phoneOrientation: metadata.phoneOrientation,
-            demoMode: metadata.demoMode,
-            catchThreshold: metadata.catchThreshold,
-            finishThreshold: metadata.finishThreshold,
-            calibrationData: undefined, // TODO: Store calibration in metadata
-          });
-          
-          resolve(binaryData);
-        } else {
-          // Legacy format: read from single binary blob
-          const transaction = db.transaction([STORE_NAME], 'readonly');
-          const store = transaction.objectStore(STORE_NAME);
-          const request = store.get(sessionId);
-          
-          request.onsuccess = () => {
-            if (!request.result || !request.result.binaryData) {
-              resolve(null);
-              return;
-            }
-            resolve(request.result.binaryData);
-          };
-          
-          request.onerror = () => {
-            reject(request.error);
-          };
-        }
-      } catch (error) {
-        console.error('Error getting session binary:', error);
-        reject(error);
+
+    try {
+      const rawChunks = await this.getRawSessionChunks(sessionId);
+      if (rawChunks.length > 0) {
+        const metadata = await this.getSessionMetadataOnly(sessionId);
+        return this.writer.mergeChunks(rawChunks, {
+          sessionStart: metadata?.sessionStartTime,
+          phoneOrientation: metadata?.phoneOrientation,
+          demoMode: metadata?.demoMode,
+          catchThreshold: metadata?.catchThreshold,
+          finishThreshold: metadata?.finishThreshold,
+        });
       }
-    });
+
+      return await new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.get(sessionId);
+
+        request.onsuccess = () => {
+          resolve(this.toArrayBuffer(request.result?.binaryData));
+        };
+
+        request.onerror = () => {
+          reject(request.error);
+        };
+      });
+    } catch (error) {
+      console.error('Error getting session binary:', error);
+      throw error;
+    }
   }
   
   /**
@@ -913,51 +1023,32 @@ export class IndexedDBStorage {
    */
   async clearAllSessions(): Promise<void> {
     const db = await this.ensureDB();
-    
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction([STORE_NAME], 'readwrite');
-      const store = transaction.objectStore(STORE_NAME);
-      const request = store.clear();
-      
-      request.onsuccess = () => {
-        resolve();
-      };
-      
-      request.onerror = () => {
-        console.error('Error clearing sessions:', request.error);
-        reject(request.error);
-      };
-    });
+
+    const clearStore = (name: string) =>
+      new Promise<void>((resolve, reject) => {
+        if (!db.objectStoreNames.contains(name)) {
+          resolve();
+          return;
+        }
+        const transaction = db.transaction([name], 'readwrite');
+        const request = transaction.objectStore(name).clear();
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      });
+
+    await clearStore(CHUNKS_STORE_NAME);
+    await clearStore(STORE_NAME);
   }
   
   /**
    * Get storage statistics
    */
   async getStorageStats(): Promise<{ sessionCount: number; totalSize: number }> {
-    const db = await this.ensureDB();
-    
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction([STORE_NAME], 'readonly');
-      const store = transaction.objectStore(STORE_NAME);
-      const request = store.getAll();
-      
-      request.onsuccess = () => {
-        const sessions = request.result;
-        const totalSize = sessions.reduce((sum: number, session: any) => {
-          return sum + (session.binaryData?.byteLength || 0);
-        }, 0);
-        
-        resolve({
-          sessionCount: sessions.length,
-          totalSize,
-        });
-      };
-      
-      request.onerror = () => {
-        console.error('Error getting storage stats:', request.error);
-        reject(request.error);
-      };
-    });
+    const metadata = await this.getAllSessionMetadata();
+    return {
+      sessionCount: metadata.length,
+      totalSize: metadata.reduce((sum, session) => sum + (session.dataSize || 0), 0),
+    };
   }
 }
 
@@ -969,5 +1060,10 @@ export function getIndexedDBStorage(): IndexedDBStorage {
     storageInstance = new IndexedDBStorage();
   }
   return storageInstance;
+}
+
+export function resetIndexedDBStorageForTests(): void {
+  storageInstance?.close();
+  storageInstance = null;
 }
 

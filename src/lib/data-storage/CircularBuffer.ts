@@ -1,6 +1,6 @@
 /**
  * Circular Buffer for Samples
- * 
+ *
  * Simple circular queue that holds ~2-3 minutes of samples.
  * When >= 32KB of data is ready, it can be flushed to storage.
  */
@@ -23,75 +23,29 @@ export class CircularBuffer<T> {
   push(item: T): void {
     this.buffer[this.writeIndex] = item;
     this.writeIndex = (this.writeIndex + 1) % this.maxSize;
-    
+
     if (this.size < this.maxSize) {
       this.size++;
     } else {
       // Buffer full, overwrite oldest
-      this.readIndex = (this.readIndex + 1) % this.maxSize;
+      this.readIndex = (this.writeIndex) % this.maxSize;
     }
   }
 
   /**
-   * Get all items from readIndex to writeIndex (items ready to flush)
+   * Get all items currently queued, including when the buffer is full
+   * (writeIndex === readIndex and size === maxSize).
    */
   getReadyItems(): T[] {
-    if (this.size === 0) return [];
-    
-    const items: T[] = [];
-    let current = this.readIndex;
-    const end = this.writeIndex;
-    
-    if (end > current) {
-      // Normal case: readIndex < writeIndex
-      for (let i = current; i < end; i++) {
-        if (this.buffer[i] !== null) {
-          items.push(this.buffer[i]!);
-        }
-      }
-    } else if (end < current) {
-      // Wrapped case: writeIndex wrapped around
-      // Get from readIndex to end
-      for (let i = current; i < this.maxSize; i++) {
-        if (this.buffer[i] !== null) {
-          items.push(this.buffer[i]!);
-        }
-      }
-      // Then from 0 to writeIndex
-      for (let i = 0; i < end; i++) {
-        if (this.buffer[i] !== null) {
-          items.push(this.buffer[i]!);
-        }
-      }
-    }
-    
-    return items;
+    return this.collect();
   }
 
   /**
-   * Clear items from readIndex to writeIndex (after successful flush)
+   * Clear items after a successful flush
    */
   clearReady(): void {
     if (this.size === 0) return;
-    
-    // Clear items between readIndex and writeIndex
-    let current = this.readIndex;
-    const end = this.writeIndex;
-    
-    if (end > current) {
-      for (let i = current; i < end; i++) {
-        this.buffer[i] = null;
-      }
-    } else if (end < current) {
-      for (let i = current; i < this.maxSize; i++) {
-        this.buffer[i] = null;
-      }
-      for (let i = 0; i < end; i++) {
-        this.buffer[i] = null;
-      }
-    }
-    
-    // Reposition pointers
+    this.buffer.fill(null);
     this.readIndex = this.writeIndex;
     this.size = 0;
   }
@@ -100,32 +54,7 @@ export class CircularBuffer<T> {
    * Get all items currently in buffer (for UI/metrics)
    */
   getAllItems(): T[] {
-    if (this.size === 0) return [];
-    
-    const items: T[] = [];
-    let current = this.readIndex;
-    const end = this.writeIndex;
-    
-    if (end > current) {
-      for (let i = current; i < end; i++) {
-        if (this.buffer[i] !== null) {
-          items.push(this.buffer[i]!);
-        }
-      }
-    } else if (end < current) {
-      for (let i = current; i < this.maxSize; i++) {
-        if (this.buffer[i] !== null) {
-          items.push(this.buffer[i]!);
-        }
-      }
-      for (let i = 0; i < end; i++) {
-        if (this.buffer[i] !== null) {
-          items.push(this.buffer[i]!);
-        }
-      }
-    }
-    
-    return items;
+    return this.collect();
   }
 
   /**
@@ -144,5 +73,16 @@ export class CircularBuffer<T> {
     this.readIndex = 0;
     this.size = 0;
   }
-}
 
+  private collect(): T[] {
+    if (this.size === 0) return [];
+
+    const items: T[] = [];
+    for (let i = 0; i < this.size; i++) {
+      const idx = (this.readIndex + i) % this.maxSize;
+      const item = this.buffer[idx];
+      if (item !== null) items.push(item);
+    }
+    return items;
+  }
+}

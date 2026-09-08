@@ -209,7 +209,16 @@ export function useSessionStorage() {
       return await storage.getSessionBinary(sessionId);
     } catch (error) {
       console.error('Error getting session binary:', error);
-      return null;
+      throw error;
+    }
+  }, []);
+
+  const getSessionFormatVersion = useCallback(async (sessionId: string): Promise<number> => {
+    try {
+      return await storage.getSessionFormatVersion(sessionId);
+    } catch (error) {
+      console.error('Error getting session format version:', error);
+      return 0;
     }
   }, []);
 
@@ -231,6 +240,7 @@ export function useSessionStorage() {
     clearAllSessions,
     getSession,
     getSessionBinary,
+    getSessionFormatVersion,
     getStorageStats,
   };
 }
