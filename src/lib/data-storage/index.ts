@@ -19,6 +19,7 @@ export {
 export {
   IndexedDBStorage,
   getIndexedDBStorage,
+  resetIndexedDBStorageForTests,
   type SessionMetadataStorage,
   type SessionFullData,
 } from './IndexedDBStorage';

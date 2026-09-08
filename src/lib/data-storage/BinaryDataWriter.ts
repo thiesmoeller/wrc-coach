@@ -53,6 +53,16 @@ export interface SessionMetadata {
   calibrationSamples?: IMUSample[];
 }
 
+export interface ChunkLayout {
+  version: number;
+  imuCount: number;
+  gpsCount: number;
+  imuOffset: number;
+  gpsOffset: number;
+  imuBytes: number;
+  gpsBytes: number;
+}
+
 /**
  * Binary Writer for IMU/GPS data
  * Creates compact .wrcdata files for efficient storage and reprocessing
@@ -135,6 +145,148 @@ export class BinaryDataWriter {
     }
     
     return buffer;
+  }
+
+  /**
+   * Merge already-encoded .wrcdata chunks into one file by copying sample
+   * bytes. Long sessions are stored as many small chunks; decoding them all
+   * into JS objects can OOM on a phone and makes Share return null / "Failed
+   * to export session".
+   */
+  mergeChunks(chunkBuffers: ArrayBuffer[], metadata: SessionMetadata = {}): ArrayBuffer {
+    if (chunkBuffers.length === 0) {
+      return this.encode([], [], metadata);
+    }
+
+    const layouts = chunkBuffers.map((buffer) => this.inspectChunk(buffer));
+    const merged = this.createMergedBuffer(layouts, metadata);
+    let imuWrite = merged.imuWrite;
+    let gpsWrite = merged.gpsWrite;
+    for (let i = 0; i < chunkBuffers.length; i++) {
+      const next = this.copyChunkIntoMerge(
+        merged.out,
+        merged.view,
+        imuWrite,
+        gpsWrite,
+        chunkBuffers[i],
+        layouts[i],
+        merged.version
+      );
+      imuWrite = next.imuWrite;
+      gpsWrite = next.gpsWrite;
+    }
+    return merged.buffer;
+  }
+
+  peekVersion(buffer: ArrayBuffer): number {
+    if (buffer.byteLength < 16) return 0;
+    const view = new DataView(buffer);
+    let magic = '';
+    for (let i = 0; i < 16; i++) {
+      const char = view.getUint8(i);
+      if (char !== 0) magic += String.fromCharCode(char);
+    }
+    if (magic.startsWith('WRC_COACH_V3')) return 3;
+    if (magic.startsWith('WRC_COACH_V2')) return 2;
+    if (magic.startsWith('WRC_COACH_V1')) return 1;
+    return 0;
+  }
+
+  inspectChunk(buffer: ArrayBuffer): ChunkLayout {
+    if (buffer.byteLength < 24) {
+      throw new Error('Session chunk is too small to be a WRC file');
+    }
+    const version = this.peekVersion(buffer);
+    if (version === 0) {
+      throw new Error('Invalid session chunk format');
+    }
+
+    const view = new DataView(buffer);
+    const imuCount = view.getUint32(16, true);
+    const gpsCount = view.getUint32(20, true);
+    const headerSize = version === 1 ? 64 : this.HEADER_SIZE;
+    const hasCalibration = version === 1 ? 0 : view.getUint8(28);
+    const imuSampleSize = version === 3 ? this.IMU_SAMPLE_SIZE_V3 : this.IMU_SAMPLE_SIZE_V2;
+    let imuOffset = headerSize;
+    if ((version === 2 || version === 3) && hasCalibration) {
+      imuOffset += this.CALIBRATION_SIZE;
+    }
+    const imuBytes = imuCount * imuSampleSize;
+    const gpsOffset = imuOffset + imuBytes;
+    const gpsBytes = gpsCount * this.GPS_SAMPLE_SIZE;
+    if (gpsOffset + gpsBytes > buffer.byteLength) {
+      throw new Error('Session chunk is truncated');
+    }
+    return { version, imuCount, gpsCount, imuOffset, gpsOffset, imuBytes, gpsBytes };
+  }
+
+  createMergedBuffer(
+    layouts: ChunkLayout[],
+    metadata: SessionMetadata = {}
+  ): {
+    buffer: ArrayBuffer;
+    view: DataView;
+    out: Uint8Array;
+    imuWrite: number;
+    gpsWrite: number;
+    version: number;
+  } {
+    const version = layouts.some((c) => c.version === 3) ? 3 : 2;
+    const outImuSize = version === 3 ? this.IMU_SAMPLE_SIZE_V3 : this.IMU_SAMPLE_SIZE_V2;
+    const imuCount = layouts.reduce((sum, c) => sum + c.imuCount, 0);
+    const gpsCount = layouts.reduce((sum, c) => sum + c.gpsCount, 0);
+    const totalSize =
+      this.HEADER_SIZE + imuCount * outImuSize + gpsCount * this.GPS_SAMPLE_SIZE;
+    const buffer = new ArrayBuffer(totalSize);
+    const view = new DataView(buffer);
+    const out = new Uint8Array(buffer);
+    const imuWrite = this.writeHeader(view, 0, {
+      version,
+      imuCount,
+      gpsCount,
+      calibrationCount: 0,
+      hasCalibration: 0,
+      sessionStart: metadata.sessionStart || Date.now(),
+      phoneOrientation: metadata.phoneOrientation === 'coxswain' ? 1 : 0,
+      demoMode: metadata.demoMode ? 1 : 0,
+      catchThreshold: metadata.catchThreshold || 0.6,
+      finishThreshold: metadata.finishThreshold || -0.3,
+    });
+    const gpsWrite = imuWrite + imuCount * outImuSize;
+    return { buffer, view, out, imuWrite, gpsWrite, version };
+  }
+
+  copyChunkIntoMerge(
+    out: Uint8Array,
+    view: DataView,
+    imuWrite: number,
+    gpsWrite: number,
+    buffer: ArrayBuffer,
+    layout: ChunkLayout,
+    targetVersion: number
+  ): { imuWrite: number; gpsWrite: number } {
+    const src = new Uint8Array(buffer);
+    if (layout.version === targetVersion) {
+      out.set(src.subarray(layout.imuOffset, layout.imuOffset + layout.imuBytes), imuWrite);
+      imuWrite += layout.imuBytes;
+    } else if (layout.version === 2 && targetVersion === 3) {
+      for (let i = 0; i < layout.imuCount; i++) {
+        const start = layout.imuOffset + i * this.IMU_SAMPLE_SIZE_V2;
+        out.set(src.subarray(start, start + this.IMU_SAMPLE_SIZE_V2), imuWrite);
+        imuWrite += this.IMU_SAMPLE_SIZE_V2;
+        view.setFloat32(imuWrite, NaN, true); imuWrite += 4;
+        view.setFloat32(imuWrite, NaN, true); imuWrite += 4;
+        view.setFloat32(imuWrite, NaN, true); imuWrite += 4;
+      }
+    } else {
+      throw new Error(`Cannot merge V${layout.version} IMU samples into V${targetVersion}`);
+    }
+
+    if (layout.gpsBytes > 0) {
+      out.set(src.subarray(layout.gpsOffset, layout.gpsOffset + layout.gpsBytes), gpsWrite);
+      gpsWrite += layout.gpsBytes;
+    }
+    return { imuWrite, gpsWrite };
   }
 
   private writeHeader(view: DataView, offset: number, header: {

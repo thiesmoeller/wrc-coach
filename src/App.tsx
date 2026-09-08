@@ -42,7 +42,7 @@ interface Sample {
 
 function App() {
   const { settings, updateSettings, resetSettings } = useSettings();
-  const { sessions, isLoading, saveSession, saveSessionIncremental, deleteSession, clearAllSessions, getSessionBinary } = useSessionStorage();
+  const { sessions, isLoading, saveSession, saveSessionIncremental, deleteSession, clearAllSessions, getSessionBinary, getSessionFormatVersion } = useSessionStorage();
   const [isRunning, setIsRunning] = useState(false);
   const isRunningRef = useRef(false); // Ref to track isRunning for callbacks
   // Circular buffer: ~2-3 minutes of samples (roughly 6000-12000 samples at 50-100 Hz)
@@ -63,6 +63,8 @@ function App() {
   const sessionStartTimeRef = useRef<number | null>(null); // Ref to track session start time
   const currentSessionIdRef = useRef<string | null>(null); // Track current session ID for batch writes
   const writeCheckIntervalRef = useRef<number | null>(null); // Check for write every second
+  const writeInFlightRef = useRef(false);
+  const stoppingRef = useRef(false);
   
   // Keep sessionStartTime ref in sync with state
   useEffect(() => {
@@ -408,23 +410,25 @@ function App() {
   
   // Check if >= 32KB ready and write to flash
   const checkAndWrite = useCallback(async () => {
-    if (!isRunningRef.current || !currentSessionIdRef.current) {
+    if (!isRunningRef.current || stoppingRef.current || !currentSessionIdRef.current) {
       return;
     }
-    
+    if (writeInFlightRef.current) {
+      return;
+    }
+
     const readySamples = sampleBufferRef.current.getReadyItems();
     if (readySamples.length === 0) return;
-    
+
     const estimatedSize = estimateBinarySize(readySamples);
     if (estimatedSize < BATCH_WRITE_SIZE_BYTES) {
       return; // Not enough data yet
     }
-    
+
+    writeInFlightRef.current = true;
     try {
-      // Calculate metrics from accumulated refs
       const metrics = calculateCurrentMetrics();
-      
-      // Write ready samples to flash
+
       await saveSessionIncremental(currentSessionIdRef.current, {
         sessionStartTime: sessionStartTimeRef.current!,
         duration: metrics.duration,
@@ -436,19 +440,20 @@ function App() {
         strokeCount: metrics.strokeCount,
         demoMode: settings.demoMode,
       });
-      
-      // Write finished - reposition pointers
+
       sampleBufferRef.current.clearReady();
-      
+
       console.log(`[App] Wrote ${readySamples.length} samples (${(estimatedSize / 1024).toFixed(1)}KB) to flash`);
     } catch (error) {
       console.error('[App] Failed to write to flash:', error);
-      // Don't clear on error - will retry
+    } finally {
+      writeInFlightRef.current = false;
     }
   }, [saveSessionIncremental, calculateCurrentMetrics, settings, estimateBinarySize]);
   
   // Start session
   const handleStart = useCallback(async () => {
+    stoppingRef.current = false;
     setIsRunning(true);
     const startTime = Date.now();
     setSessionStartTime(startTime);
@@ -491,6 +496,8 @@ function App() {
 
   // Stop session and save
   const handleStop = useCallback(async () => {
+    stoppingRef.current = true;
+    isRunningRef.current = false;
     setIsRunning(false);
     
     // Clear write check interval
@@ -501,40 +508,39 @@ function App() {
     
     // Mark session as inactive (allows app updates)
     sessionStorage.removeItem('wrc_recording_active');
+
+    const waitStarted = Date.now();
+    while (writeInFlightRef.current && Date.now() - waitStarted < 15000) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     
     // Final save - write any remaining samples in buffer
     if (currentSessionIdRef.current) {
       try {
         const remainingSamples = sampleBufferRef.current.getReadyItems();
-        if (remainingSamples.length > 0) {
-          // Calculate final metrics from accumulated refs
-          const metrics = calculateCurrentMetrics();
-          
-          // Write final samples
-          await saveSessionIncremental(currentSessionIdRef.current, {
-            duration: metrics.duration,
-            samples: remainingSamples,
-            sessionStartTime: sessionStartTime!,
-            avgStrokeRate: metrics.avgStrokeRate,
-            avgDrivePercent: metrics.avgDrivePercent,
-            maxSpeed: metrics.maxSpeed,
-            totalDistance: metrics.totalDistance,
-            strokeCount: metrics.strokeCount,
-            demoMode: settings.demoMode,
-          });
-          
-          // Reposition pointers
-          sampleBufferRef.current.clearReady();
-          
-          console.log(`[App] Final save completed: wrote ${remainingSamples.length} samples`);
-        }
+        const metrics = calculateCurrentMetrics();
+
+        await saveSessionIncremental(currentSessionIdRef.current, {
+          duration: metrics.duration,
+          samples: remainingSamples,
+          sessionStartTime: sessionStartTime!,
+          avgStrokeRate: metrics.avgStrokeRate,
+          avgDrivePercent: metrics.avgDrivePercent,
+          maxSpeed: metrics.maxSpeed,
+          totalDistance: metrics.totalDistance,
+          strokeCount: metrics.strokeCount,
+          demoMode: settings.demoMode,
+        });
+
+        sampleBufferRef.current.clearReady();
+        console.log(`[App] Final save completed: wrote ${remainingSamples.length} samples`);
       } catch (error) {
         console.error('Failed to save session:', error);
       } finally {
-        // Clear session ID and buffers
         currentSessionIdRef.current = null;
         sampleBufferRef.current.clear();
         setTotalSampleCount(0);
+        stoppingRef.current = false;
       }
     } else {
       // Fallback: create new session if no session ID (shouldn't happen normally)
@@ -560,6 +566,7 @@ function App() {
       } finally {
         sampleBufferRef.current.clear();
         setTotalSampleCount(0);
+        stoppingRef.current = false;
       }
     }
   }, [sessionStartTime, saveSession, saveSessionIncremental, calculateCurrentMetrics, settings]);
@@ -641,6 +648,7 @@ function App() {
         deleteSession={deleteSession}
         clearAllSessions={clearAllSessions}
         getSessionBinary={getSessionBinary}
+        getSessionFormatVersion={getSessionFormatVersion}
         isLoading={isLoading}
       />
 
