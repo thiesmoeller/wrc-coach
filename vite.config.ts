@@ -4,59 +4,30 @@ import { VitePWA } from 'vite-plugin-pwa';
 import { execSync } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { resolveGitInfo } from './scripts/git-info.js';
 
-// Get git version info
+function runGit(command: string): string {
+  return execSync(command, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+}
+
 function getGitVersion() {
-  // First, try to read from version.json (for Docker builds)
+  let existing: { commit?: string; branch?: string; tag?: string; dirty?: boolean } | undefined;
   const versionFile = join(process.cwd(), 'version.json');
   if (existsSync(versionFile)) {
     try {
-      const versionData = JSON.parse(readFileSync(versionFile, 'utf-8'));
-      console.log('📦 Using version from version.json');
-      return {
-        commit: versionData.commit,
-        branch: versionData.branch,
-        tag: versionData.tag,
-        dirty: versionData.dirty,
-      };
+      existing = JSON.parse(readFileSync(versionFile, 'utf-8'));
     } catch (error) {
       console.warn('Could not read version.json:', error);
     }
   }
 
-  // Fallback to git commands (for local development)
-  try {
-    const gitCommit = execSync('git rev-parse --short HEAD').toString().trim();
-    const gitBranch = execSync('git rev-parse --abbrev-ref HEAD').toString().trim();
-    
-    // Try to get the most recent tag
-    let gitTag = '';
-    try {
-      gitTag = execSync('git describe --tags --abbrev=0').toString().trim();
-    } catch {
-      // No tags found
-      gitTag = '';
-    }
-    
-    // Check if there are uncommitted changes
-    const gitDirty = execSync('git status --porcelain').toString().trim() !== '';
-    
-    console.log('🔧 Using version from git commands');
-    return {
-      commit: gitCommit,
-      branch: gitBranch,
-      tag: gitTag,
-      dirty: gitDirty,
-    };
-  } catch (error) {
-    console.warn('Could not get git version info, using defaults:', error.message);
-    return {
-      commit: 'unknown',
-      branch: 'unknown',
-      tag: '',
-      dirty: false,
-    };
-  }
+  const info = resolveGitInfo({
+    runGit,
+    env: process.env,
+    existing,
+  });
+  console.log(`📦 App version commit=${info.commit} branch=${info.branch}`);
+  return info;
 }
 
 // https://vitejs.dev/config/

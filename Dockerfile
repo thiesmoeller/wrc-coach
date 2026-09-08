@@ -3,18 +3,24 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 ARG BUILD_DATE
-ENV BUILD_DATE=${BUILD_DATE}
+ARG GIT_COMMIT
+ARG GIT_BRANCH=main
+ARG GIT_TAG
 ARG CAPROVER_GIT_COMMIT_SHA
-RUN echo "Commit: $CAPROVER_GIT_COMMIT_SHA"
 
-# Install git for version 
-RUN apk add --no-cache git 
+ENV BUILD_DATE=${BUILD_DATE}
+ENV GIT_COMMIT=${GIT_COMMIT}
+ENV GIT_BRANCH=${GIT_BRANCH}
+ENV GIT_TAG=${GIT_TAG}
+ENV CAPROVER_GIT_COMMIT_SHA=${CAPROVER_GIT_COMMIT_SHA}
 
 COPY package*.json ./
 RUN npm ci
 
 COPY . .
-RUN npm run build
+# .git is not in the Docker context; stamp version.json from build-args
+# so Settings shows this image's commit instead of a stale committed file.
+RUN node scripts/generate-version.js && npm run build
 
 # Production stage
 FROM nginx:alpine
