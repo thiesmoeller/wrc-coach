@@ -200,22 +200,32 @@ def detect_strokes(t_ms: np.ndarray, a: np.ndarray,
                 catch_time = pending_catch
                 finish_time = last_down
                 drive_time = finish_time - catch_time
-                if drive_time >= min_drive_ms and drive_peak >= peak_lvl:
-                    recovery_time = (catch_time - last_finish) if last_finish is not None else 0.0
-                    total = drive_time + recovery_time
-                    ok = recovery_time == 0 or (min_period_ms <= total <= max_period_ms)
-                    if ok:
-                        sr = round(60000.0 / total) if (total > 0 and recovery_time > 0) else 0
-                        dp = round(100.0 * drive_time / total) if (total > 0 and recovery_time > 0) else 0
-                        count += 1
-                        strokes.append(Stroke(
-                            index=count, catch_time=catch_time, finish_time=finish_time,
-                            drive_time=drive_time, recovery_time=recovery_time,
-                            stroke_rate=sr, drive_percent=dp, peak_drive_accel=drive_peak,
-                            catch_sharpness=drive_jerk, min_recovery_accel=recovery_min,
-                        ))
-                        last_catch = catch_time
-                        last_finish = finish_time
+                    if drive_time >= min_drive_ms and drive_peak >= peak_lvl:
+                        recovery_time = (catch_time - last_finish) if last_finish is not None else 0.0
+                        total = drive_time + recovery_time
+                        resumed = (
+                            recovery_time == 0
+                            or recovery_time > max_period_ms
+                            or total > max_period_ms
+                        )
+                        too_short = (not resumed) and total < min_period_ms
+                        if not too_short:
+                            if (not resumed) and total > 0 and recovery_time > 0:
+                                sr = round(60000.0 / total)
+                                dp = round(100.0 * drive_time / total)
+                            else:
+                                sr = 0
+                                dp = 0
+                            count += 1
+                            strokes.append(Stroke(
+                                index=count, catch_time=catch_time, finish_time=finish_time,
+                                drive_time=drive_time,
+                                recovery_time=0.0 if resumed else recovery_time,
+                                stroke_rate=sr, drive_percent=dp, peak_drive_accel=drive_peak,
+                                catch_sharpness=drive_jerk, min_recovery_accel=recovery_min,
+                            ))
+                            last_catch = catch_time
+                            last_finish = finish_time
                 phase = "recovery"
                 pending_catch = None
                 recovery_min = 0.0
