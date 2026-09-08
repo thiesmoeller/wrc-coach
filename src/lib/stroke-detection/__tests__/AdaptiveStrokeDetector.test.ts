@@ -116,4 +116,35 @@ describe('AdaptiveStrokeDetector', () => {
     expect(det.getStrokeCount()).toBe(0);
     expect(det.isInDrive()).toBe(false);
   });
+
+  it('resumes reporting SPM after a rest longer than maxPeriod', () => {
+    const det = new AdaptiveStrokeDetector();
+    const fs = 50;
+    const dt = 1000 / fs;
+    const piece1 = strokeSignal({ spm: 24, seconds: 20, fs });
+    for (const s of piece1) det.process(s.t, s.a);
+    const ratesBefore = det.getAllStrokes().filter((s) => s.strokeRate > 0).map((s) => s.strokeRate);
+    expect(ratesBefore.length).toBeGreaterThan(4);
+
+    const lastT = piece1[piece1.length - 1].t;
+    for (let t = lastT + dt; t < lastT + 12000; t += dt) {
+      det.process(t, 0);
+    }
+
+    const piece2Start = lastT + 12000;
+    const piece2 = strokeSignal({ spm: 28, seconds: 20, fs }).map((s) => ({
+      t: s.t + piece2Start,
+      a: s.a,
+    }));
+    const ratesAfter: number[] = [];
+    for (const s of piece2) {
+      const st = det.process(s.t, s.a);
+      if (st && st.strokeRate > 0) ratesAfter.push(st.strokeRate);
+    }
+
+    expect(ratesAfter.length).toBeGreaterThan(4);
+    const avgAfter = ratesAfter.reduce((a, b) => a + b, 0) / ratesAfter.length;
+    expect(avgAfter).toBeGreaterThan(26);
+    expect(avgAfter).toBeLessThan(30);
+  });
 });

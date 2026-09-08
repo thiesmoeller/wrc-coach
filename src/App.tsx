@@ -97,6 +97,7 @@ function App() {
   const drivePercentsRef = useRef<number[]>([]);
   const speedsRef = useRef<number[]>([]);
   const rollSamplesRef = useRef<number[]>([]);
+  const lastRatedStrokeAtRef = useRef<number | null>(null);
   
   // Helper: Limit UI samples to last 2 minutes
   const limitUISamples = useCallback((newSamples: Sample[]) => {
@@ -197,6 +198,14 @@ function App() {
       setDrivePercent(p.stroke.drivePercent);
       strokeRatesRef.current.push(p.stroke.strokeRate);
       drivePercentsRef.current.push(p.stroke.drivePercent);
+      lastRatedStrokeAtRef.current = data.t;
+    } else if (
+      lastRatedStrokeAtRef.current !== null &&
+      data.t - lastRatedStrokeAtRef.current > 8000
+    ) {
+      // Rest / pause: drop stale SPM so the bar does not look frozen.
+      setStrokeRate(0);
+      lastRatedStrokeAtRef.current = null;
     }
 
     setFusedVelocity(p.speed);
@@ -480,6 +489,7 @@ function App() {
     drivePercentsRef.current = [];
     speedsRef.current = [];
     rollSamplesRef.current = [];
+    lastRatedStrokeAtRef.current = null;
     
     setStrokeRate(0);
     setDrivePercent(0);
