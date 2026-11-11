@@ -109,6 +109,31 @@ describe('AdaptiveStrokeDetector', () => {
     expect(avg).toBeLessThan(50);
   });
 
+  it('restartTracking() drops the stroke in progress and keeps what was completed', () => {
+    const det = new AdaptiveStrokeDetector();
+    const sig = strokeSignal({ spm: 24, seconds: 40 });
+    const half = sig.length / 2;
+    for (const s of sig.slice(0, half)) det.process(s.t, s.a);
+    const before = det.getStrokeCount();
+    expect(before).toBeGreaterThanOrEqual(6);
+
+    // The polarity reverses mid-session, as when the bow direction is corrected.
+    det.restartTracking();
+    expect(det.isInDrive()).toBe(false);
+    expect(det.getStrokeCount()).toBe(before);
+    const tRestart = sig[half].t;
+    const after = [];
+    for (const s of sig.slice(half)) {
+      const st = det.process(s.t, -s.a);
+      if (st) after.push(st);
+    }
+    // No stroke is stitched together from before and after the restart, and
+    // detection carries on at the same rate without a new warm-up.
+    expect(after.every((st) => st.catchTime >= tRestart)).toBe(true);
+    expect(after.length).toBeGreaterThanOrEqual(6);
+    expect(det.getStrokeCount()).toBe(before + after.length);
+  });
+
   it('resets cleanly', () => {
     const det = new AdaptiveStrokeDetector();
     for (const s of strokeSignal({ spm: 24, seconds: 10 })) det.process(s.t, s.a);

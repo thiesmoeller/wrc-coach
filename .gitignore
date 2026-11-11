@@ -45,5 +45,7 @@ uv.lock
 
 # Data files
 *.wrcdata
+# Real recordings used as test fixtures are committed.
+!fixtures/recordings/*.wrcdata
 *.csv
 out.html

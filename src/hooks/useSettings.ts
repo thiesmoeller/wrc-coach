@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { DEFAULT_DEMO_SCENARIO, isDemoScenario, type DemoScenario } from '../lib/demo/scenarios';
 
 export interface AppSettings {
   historyStrokes: number;
@@ -7,6 +8,8 @@ export interface AppSettings {
   /** When true, do not render any plots (reduces CPU/memory) */
   disablePlots: boolean;
   demoMode: boolean;
+  /** Which simulated boat demo mode plays. */
+  demoScenario: DemoScenario;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -15,6 +18,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   sampleRate: 20,
   disablePlots: false,
   demoMode: false,
+  demoScenario: DEFAULT_DEMO_SCENARIO,
 };
 
 const SETTINGS_KEY = 'strokeCoachSettings';
@@ -37,6 +41,9 @@ export function useSettings() {
         const parsed = JSON.parse(saved) as Record<string, unknown>;
         for (const key of LEGACY_SETTING_KEYS) {
           delete parsed[key];
+        }
+        if (!isDemoScenario(parsed.demoScenario)) {
+          delete parsed.demoScenario;
         }
         return { ...DEFAULT_SETTINGS, ...(parsed as Partial<AppSettings>) };
       } catch (e) {

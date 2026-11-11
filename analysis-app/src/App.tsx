@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import type { SessionData, AnalysisResults } from './types';
 import { BinaryDataReader } from './lib/BinaryDataReader';
 import { DataAnalyzer } from './lib/DataAnalyzer';
+import { alignRecordingGps } from '@wrc-coach/lib/sensors/alignRecordingGps';
 import { TimeSeriesPlot } from './components/TimeSeriesPlot';
 import { GPSMapPlot } from './components/GPSMapLeaflet';
 import { ParameterPanel } from './components/ParameterPanel';
@@ -135,7 +136,12 @@ function App() {
       const buffer = e.target?.result as ArrayBuffer;
       try {
         const binaryReader = new BinaryDataReader();
-        const data = binaryReader.decode(buffer);
+        // Put GPS on the IMU clock once, so the analysis, the GPS speed plot
+        // and the preview all read the same timeline for old and new files.
+        const { recording: data, clock: gpsClock } = alignRecordingGps(binaryReader.decode(buffer));
+        if (gpsClock !== 'shared' && gpsClock !== 'no-gps') {
+          console.info(`GPS timestamps moved onto the IMU clock (${gpsClock})`);
+        }
         setSessionData(data);
 
         // Reset zoom when loading new file

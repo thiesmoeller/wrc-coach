@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { SettingsPanel } from '../SettingsPanel';
 import type { AppSettings } from '../../hooks/useSettings';
 
@@ -9,6 +9,7 @@ const settings: AppSettings = {
   sampleRate: 20,
   disablePlots: false,
   demoMode: false,
+  demoScenario: 'skiffApproachWobble',
 };
 
 describe('SettingsPanel', () => {
@@ -42,5 +43,49 @@ describe('SettingsPanel', () => {
     expect(screen.getByLabelText('Demo Mode (Simulated Data)')).toBeInTheDocument();
     expect(screen.getByText('Git Commit:')).toBeInTheDocument();
     expect(screen.getByText('abc123')).toBeInTheDocument();
+  });
+
+  it('offers the demo scenario next to the demo toggle only while demo mode is on', () => {
+    const { rerender } = render(
+      <SettingsPanel
+        isOpen
+        onClose={() => {}}
+        settings={settings}
+        updateSettings={() => {}}
+        resetSettings={() => {}}
+      />,
+    );
+    expect(screen.queryByLabelText('Demo scenario')).toBeNull();
+
+    rerender(
+      <SettingsPanel
+        isOpen
+        onClose={() => {}}
+        settings={{ ...settings, demoMode: true, demoScenario: 'crewCatchSpread' }}
+        updateSettings={() => {}}
+        resetSettings={() => {}}
+      />,
+    );
+    const select = screen.getByLabelText('Demo scenario') as HTMLSelectElement;
+    expect(select.value).toBe('crewCatchSpread');
+    expect(select.selectedOptions[0].textContent).toBe('Crew: catches spread 60 ms');
+    expect(Array.from(select.options).map((o) => o.textContent)).toContain('Single scull: wobbly approach');
+    expect(select.options).toHaveLength(8);
+    expect(select.closest('.setting-item')?.querySelector('#demoMode')).not.toBeNull();
+  });
+
+  it('updates the demo scenario setting when another one is chosen', () => {
+    const updateSettings = vi.fn();
+    render(
+      <SettingsPanel
+        isOpen
+        onClose={() => {}}
+        settings={{ ...settings, demoMode: true }}
+        updateSettings={updateSettings}
+        resetSettings={() => {}}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Demo scenario'), { target: { value: 'startFromRest' } });
+    expect(updateSettings).toHaveBeenCalledWith({ demoScenario: 'startFromRest' });
   });
 });

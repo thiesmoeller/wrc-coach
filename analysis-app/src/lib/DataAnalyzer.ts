@@ -1,12 +1,13 @@
 import type { SessionData, AnalysisResults } from '../types';
 import { RowingPipeline } from '@wrc-coach/lib/analysis/RowingPipeline';
+import { alignRecordingGps } from '@wrc-coach/lib/sensors/alignRecordingGps';
 
 /**
  * Offline analysis of a recorded session.
  *
- * Uses the same RowingPipeline as the live PWA: Madgwick AHRS gravity removal,
- * PCA-derived boat frame (no phone-orientation setting), adaptive zero-crossing
- * stroke detection (no catch/finish thresholds), and INS/GPS speed fusion.
+ * Uses the same RowingPipeline as the live PWA: gravity tracking in the phone
+ * frame, a boat frame whose bow GPS can confirm, adaptive zero-crossing stroke
+ * detection, and INS/GPS speed fusion.
  */
 export class DataAnalyzer {
   static analyze(data: SessionData): AnalysisResults {
@@ -41,7 +42,9 @@ export class DataAnalyzer {
     const filteredAcceleration: number[] = [];
 
     let gpsIdx = 0;
-    const gps = data.gpsSamples;
+    // Older recordings stamp GPS in epoch ms and the IMU in performance.now()
+    // ms; without this no fix would ever be reached by the IMU clock.
+    const gps = alignRecordingGps(data).recording.gpsSamples;
 
     for (const s of imuSamples) {
       while (gpsIdx < gps.length && gps[gpsIdx].t <= s.t) {

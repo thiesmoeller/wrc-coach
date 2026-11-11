@@ -4,8 +4,8 @@
  */
 export { SampleRateEstimator } from './SampleRateEstimator';
 export { Biquad, ButterworthBandpass, designLowpass, designHighpass, type BiquadCoeffs } from './Biquad';
-export { MadgwickAHRS } from './MadgwickAHRS';
-export { HorizontalAxisEstimator, type Axis2D } from './HorizontalAxisEstimator';
+export { GravityFilter, type GravityFilterOptions } from './GravityFilter';
+export { BoatFrameEstimator, type BoatFrameOptions, type BowSignSource } from './BoatFrameEstimator';
 export {
   type Quat,
   type Vec3,

@@ -254,11 +254,16 @@ export class AdaptiveStrokeDetector {
     return 0;
   }
 
-  reset(): void {
+  /**
+   * Forget the stroke being tracked, for when the input reverses polarity
+   * (the boat-frame estimator changed its mind about which way is the bow).
+   * Completed strokes, the count and the amplitude scale are kept; the next
+   * stroke is reported like a first one (no recovery time, no rate).
+   */
+  restartTracking(): void {
     this.phase = 'recovery';
     this.prevT = null;
     this.prevA = 0;
-    this.emaSq = 0;
     this.lastUpZero = null;
     this.lastDownZero = null;
     this.pendingCatch = null;
@@ -267,6 +272,11 @@ export class AdaptiveStrokeDetector {
     this.recoveryMin = 0;
     this.lastCatch = null;
     this.lastFinish = null;
+  }
+
+  reset(): void {
+    this.restartTracking();
+    this.emaSq = 0;
     this.strokeCount = 0;
     this.lastDriveTime = 700;
     this.lastRecoveryTime = 1400;

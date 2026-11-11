@@ -15,6 +15,33 @@ describe('CircularBuffer', () => {
     buf.push(5);
     expect(buf.getReadyItems()).toEqual([2, 3, 4, 5]);
   });
+
+  it('drops a flushed prefix and keeps samples pushed while the write was in flight', () => {
+    const buf = new CircularBuffer<number>(8);
+    buf.push(1);
+    buf.push(2);
+    buf.push(3);
+    const copied = buf.getReadyItems();
+    const flushedThrough = buf.getPushCount();
+    buf.push(4);
+    buf.push(5);
+    buf.dropThrough(flushedThrough);
+    expect(copied).toEqual([1, 2, 3]);
+    expect(buf.getReadyItems()).toEqual([4, 5]);
+  });
+
+  it('does not drop samples that replaced a flushed prefix after the buffer wrapped', () => {
+    const buf = new CircularBuffer<number>(3);
+    buf.push(1);
+    buf.push(2);
+    buf.push(3);
+    const flushedThrough = buf.getPushCount();
+    buf.push(4);
+    buf.push(5);
+    buf.push(6);
+    buf.dropThrough(flushedThrough);
+    expect(buf.getReadyItems()).toEqual([4, 5, 6]);
+  });
 });
 
 function imu(t: number, extra: Partial<IMUSample> = {}): IMUSample {

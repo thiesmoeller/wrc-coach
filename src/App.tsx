@@ -11,6 +11,7 @@ import { UpdateNotification } from './components/UpdateNotification';
 import { KeepAwakeNotice } from './components/KeepAwakeNotice';
 import { useSettings, useDeviceMotion, useDeviceOrientation, useGeolocation, useWakeLock, useBackgroundInterruptions, useSessionStorage, type MotionData, type GPSData, type OrientationData } from './hooks';
 import { RowingPipeline } from './lib/analysis';
+import { demoSource } from './lib/demo';
 import { convertToSplitTime } from './utils/conversions';
 import './App.css';
 
@@ -98,19 +99,11 @@ function App() {
   const speedsRef = useRef<number[]>([]);
   const rollSamplesRef = useRef<number[]>([]);
   
-  // Helper: Limit UI samples to last 2 minutes
+  // Helper: Limit UI samples to last 2 minutes. Every sample (IMU, orientation,
+  // GPS, demo) is stamped on the performance.now() clock.
   const limitUISamples = useCallback((newSamples: Sample[]) => {
-    if (!sessionStartTimeRef.current) return newSamples;
-    
-      const cutoffTime = Date.now() - UI_SAMPLES_DURATION_MS;
-      return newSamples.filter(s => {
-        const sampleTime = s.t || 0;
-        // If sample time is relative (smaller than session start), convert to absolute
-        const absoluteTime = sampleTime < sessionStartTimeRef.current! 
-          ? sessionStartTimeRef.current! + sampleTime 
-          : sampleTime;
-        return absoluteTime >= cutoffTime;
-      });
+    const cutoffTime = performance.now() - UI_SAMPLES_DURATION_MS;
+    return newSamples.filter(s => s.t >= cutoffTime);
   }, []);
   
   // Sensor status tracking
@@ -306,13 +299,24 @@ function App() {
   // Setup sensors — IMU stays on so the header can show live sensor status
   // even before a session starts.
   // IMU/Gyro: Event-driven, typically 50-100 Hz (device dependent, includes 60 Hz)
-  useDeviceMotion({ onMotion: handleMotion, enabled: true, demoMode: settings.demoMode });
+  useDeviceMotion({
+    onMotion: handleMotion,
+    enabled: true,
+    demoMode: settings.demoMode,
+    demoScenario: settings.demoScenario,
+    recording: isRunning,
+  });
   
   // Device Orientation: Compass/heading (available on all phones via DeviceOrientationEvent)
   const orientationActive = useDeviceOrientation({ onOrientation: handleOrientation, enabled: true, demoMode: settings.demoMode });
   
   // GPS: Event-driven, typically ~1 Hz (browser/device controlled)
-  useGeolocation({ onPosition: handlePosition, enabled: isRunning, demoMode: settings.demoMode });
+  useGeolocation({
+    onPosition: handlePosition,
+    enabled: isRunning,
+    demoMode: settings.demoMode,
+    demoScenario: settings.demoScenario,
+  });
 
   // Track when device orientation becomes active
   useEffect(() => {
@@ -417,7 +421,9 @@ function App() {
       return;
     }
 
-    const readySamples = sampleBufferRef.current.getReadyItems();
+    const buffer = sampleBufferRef.current;
+    const readySamples = buffer.getReadyItems();
+    const flushedThrough = buffer.getPushCount();
     if (readySamples.length === 0) return;
 
     const estimatedSize = estimateBinarySize(readySamples);
@@ -441,7 +447,8 @@ function App() {
         demoMode: settings.demoMode,
       });
 
-      sampleBufferRef.current.clearReady();
+      // Drop only the copied prefix. Samples that arrived during the write stay queued.
+      buffer.dropThrough(flushedThrough);
 
       console.log(`[App] Wrote ${readySamples.length} samples (${(estimatedSize / 1024).toFixed(1)}KB) to flash`);
     } catch (error) {
@@ -474,6 +481,11 @@ function App() {
     
     // Reset the analysis pipeline
     pipelineRef.current.reset();
+
+    // A demo recording starts at the beginning of its scenario.
+    if (settings.demoMode) {
+      demoSource.restart();
+    }
     
     // Reset metrics tracking
     strokeRatesRef.current = [];
@@ -492,7 +504,7 @@ function App() {
     }, 1000);
     
     console.log(`[App] Recording started with session ID: ${sessionId}`);
-  }, [checkAndWrite]);
+  }, [checkAndWrite, settings.demoMode]);
 
   // Stop session and save
   const handleStop = useCallback(async () => {
@@ -517,23 +529,30 @@ function App() {
     // Final save - write any remaining samples in buffer
     if (currentSessionIdRef.current) {
       try {
-        const remainingSamples = sampleBufferRef.current.getReadyItems();
-        const metrics = calculateCurrentMetrics();
+        const buffer = sampleBufferRef.current;
+        // Samples can still arrive while a chunk is being written. Drain until
+        // a snapshot is empty so the final clear does not discard them.
+        for (;;) {
+          const remainingSamples = buffer.getReadyItems();
+          const flushedThrough = buffer.getPushCount();
+          if (remainingSamples.length === 0) break;
+          const metrics = calculateCurrentMetrics();
 
-        await saveSessionIncremental(currentSessionIdRef.current, {
-          duration: metrics.duration,
-          samples: remainingSamples,
-          sessionStartTime: sessionStartTime!,
-          avgStrokeRate: metrics.avgStrokeRate,
-          avgDrivePercent: metrics.avgDrivePercent,
-          maxSpeed: metrics.maxSpeed,
-          totalDistance: metrics.totalDistance,
-          strokeCount: metrics.strokeCount,
-          demoMode: settings.demoMode,
-        });
+          await saveSessionIncremental(currentSessionIdRef.current, {
+            duration: metrics.duration,
+            samples: remainingSamples,
+            sessionStartTime: sessionStartTime!,
+            avgStrokeRate: metrics.avgStrokeRate,
+            avgDrivePercent: metrics.avgDrivePercent,
+            maxSpeed: metrics.maxSpeed,
+            totalDistance: metrics.totalDistance,
+            strokeCount: metrics.strokeCount,
+            demoMode: settings.demoMode,
+          });
 
-        sampleBufferRef.current.clearReady();
-        console.log(`[App] Final save completed: wrote ${remainingSamples.length} samples`);
+          buffer.dropThrough(flushedThrough);
+          console.log(`[App] Final save completed: wrote ${remainingSamples.length} samples`);
+        }
       } catch (error) {
         console.error('Failed to save session:', error);
       } finally {
