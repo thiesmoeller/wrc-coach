@@ -421,7 +421,9 @@ function App() {
       return;
     }
 
-    const readySamples = sampleBufferRef.current.getReadyItems();
+    const buffer = sampleBufferRef.current;
+    const readySamples = buffer.getReadyItems();
+    const flushedThrough = buffer.getPushCount();
     if (readySamples.length === 0) return;
 
     const estimatedSize = estimateBinarySize(readySamples);
@@ -445,7 +447,8 @@ function App() {
         demoMode: settings.demoMode,
       });
 
-      sampleBufferRef.current.clearReady();
+      // Drop only the copied prefix. Samples that arrived during the write stay queued.
+      buffer.dropThrough(flushedThrough);
 
       console.log(`[App] Wrote ${readySamples.length} samples (${(estimatedSize / 1024).toFixed(1)}KB) to flash`);
     } catch (error) {
@@ -526,23 +529,30 @@ function App() {
     // Final save - write any remaining samples in buffer
     if (currentSessionIdRef.current) {
       try {
-        const remainingSamples = sampleBufferRef.current.getReadyItems();
-        const metrics = calculateCurrentMetrics();
+        const buffer = sampleBufferRef.current;
+        // Samples can still arrive while a chunk is being written. Drain until
+        // a snapshot is empty so the final clear does not discard them.
+        for (;;) {
+          const remainingSamples = buffer.getReadyItems();
+          const flushedThrough = buffer.getPushCount();
+          if (remainingSamples.length === 0) break;
+          const metrics = calculateCurrentMetrics();
 
-        await saveSessionIncremental(currentSessionIdRef.current, {
-          duration: metrics.duration,
-          samples: remainingSamples,
-          sessionStartTime: sessionStartTime!,
-          avgStrokeRate: metrics.avgStrokeRate,
-          avgDrivePercent: metrics.avgDrivePercent,
-          maxSpeed: metrics.maxSpeed,
-          totalDistance: metrics.totalDistance,
-          strokeCount: metrics.strokeCount,
-          demoMode: settings.demoMode,
-        });
+          await saveSessionIncremental(currentSessionIdRef.current, {
+            duration: metrics.duration,
+            samples: remainingSamples,
+            sessionStartTime: sessionStartTime!,
+            avgStrokeRate: metrics.avgStrokeRate,
+            avgDrivePercent: metrics.avgDrivePercent,
+            maxSpeed: metrics.maxSpeed,
+            totalDistance: metrics.totalDistance,
+            strokeCount: metrics.strokeCount,
+            demoMode: settings.demoMode,
+          });
 
-        sampleBufferRef.current.clearReady();
-        console.log(`[App] Final save completed: wrote ${remainingSamples.length} samples`);
+          buffer.dropThrough(flushedThrough);
+          console.log(`[App] Final save completed: wrote ${remainingSamples.length} samples`);
+        }
       } catch (error) {
         console.error('Failed to save session:', error);
       } finally {

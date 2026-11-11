@@ -11,6 +11,8 @@ export class CircularBuffer<T> {
   private readIndex: number = 0;
   private size: number = 0;
   private maxSize: number;
+  /** How many times `push` has been called. A flush records this with the items it copies. */
+  private pushes: number = 0;
 
   constructor(maxSize: number) {
     this.maxSize = maxSize;
@@ -21,6 +23,7 @@ export class CircularBuffer<T> {
    * Add item to buffer (overwrites oldest if full)
    */
   push(item: T): void {
+    this.pushes++;
     this.buffer[this.writeIndex] = item;
     this.writeIndex = (this.writeIndex + 1) % this.maxSize;
 
@@ -38,6 +41,29 @@ export class CircularBuffer<T> {
    */
   getReadyItems(): T[] {
     return this.collect();
+  }
+
+  /** Monotonic count of `push` calls, including ones that overwrote an old item. */
+  getPushCount(): number {
+    return this.pushes;
+  }
+
+  /**
+   * Remove items that were already queued when `pushCount` was read, and keep
+   * anything pushed afterwards. `pushCount` is the value of `getPushCount()`
+   * taken in the same turn as `getReadyItems()`. Items the buffer has already
+   * overwritten are gone; this never drops something pushed after the snapshot.
+   */
+  dropThrough(pushCount: number): void {
+    const arrivedSince = this.pushes - pushCount;
+    if (arrivedSince < 0) return;
+    const drop = this.size - arrivedSince;
+    if (drop <= 0) return;
+    for (let i = 0; i < drop; i++) {
+      this.buffer[this.readIndex] = null;
+      this.readIndex = (this.readIndex + 1) % this.maxSize;
+    }
+    this.size -= drop;
   }
 
   /**
