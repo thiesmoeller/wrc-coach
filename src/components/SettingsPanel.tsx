@@ -2,6 +2,12 @@ import { AppSettings } from '../hooks/useSettings';
 import { DEMO_SCENARIOS, DEMO_SCENARIO_LABELS, isDemoScenario } from '../lib/demo/scenarios';
 import './SettingsPanel.css';
 
+/** Calendar day of the stamped build time, in UTC. "unknown" when the bundle has no stamp. */
+export function buildDate(iso: string | undefined): string {
+  const day = (iso || '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : 'unknown';
+}
+
 interface SettingsPanelProps {
   isOpen: boolean;
   onClose: () => void;
@@ -188,7 +194,7 @@ export function SettingsPanel({ isOpen, onClose, settings, updateSettings, reset
               </div>
               <div className="version-item">
                 <span className="version-label">Build Date:</span>
-                <span className="version-value">{new Date().toISOString().split('T')[0]}</span>
+                <span className="version-value">{buildDate(__BUILD_DATE__)}</span>
               </div>
             </div>
           </div>

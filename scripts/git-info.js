@@ -57,7 +57,9 @@ export function resolveGitInfo({ runGit, env = {}, existing } = {}) {
       branch: env.GIT_BRANCH || 'unknown',
       tag: env.GIT_TAG || '',
       dirty: false,
-      timestamp: new Date().toISOString(),
+      // BUILD_DATE is the commit time passed by CI. Falling back to "now"
+      // would make a rebuild show a different day from the image that was built.
+      timestamp: (env.BUILD_DATE || '').trim() || new Date().toISOString(),
     };
   }
 

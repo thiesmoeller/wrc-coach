@@ -26,9 +26,11 @@ function getGitVersion() {
     env: process.env,
     existing,
   });
-  console.log(`📦 App version commit=${info.commit} branch=${info.branch}`);
+  console.log(`📦 App version commit=${info.commit} branch=${info.branch} built=${info.timestamp}`);
   return info;
 }
+
+const gitVersion = getGitVersion();
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -89,10 +91,11 @@ export default defineConfig({
   ],
   define: {
     __APP_VERSION__: JSON.stringify(process.env.npm_package_version || '0.0.0'),
-    __GIT_COMMIT__: JSON.stringify(getGitVersion().commit),
-    __GIT_BRANCH__: JSON.stringify(getGitVersion().branch),
-    __GIT_TAG__: JSON.stringify(getGitVersion().tag),
-    __GIT_DIRTY__: JSON.stringify(getGitVersion().dirty),
+    __GIT_COMMIT__: JSON.stringify(gitVersion.commit),
+    __GIT_BRANCH__: JSON.stringify(gitVersion.branch),
+    __GIT_TAG__: JSON.stringify(gitVersion.tag),
+    __GIT_DIRTY__: JSON.stringify(gitVersion.dirty),
+    __BUILD_DATE__: JSON.stringify(gitVersion.timestamp || ''),
   },
   server: {
     port: 3000,
