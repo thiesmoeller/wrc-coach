@@ -1,53 +1,103 @@
-name: Build ARM64 and Deploy to CapRover
+name: Checks and Deploy to CapRover
 
-on:
-  push:
-    branches: [ "main" ]
+on: [push, pull_request]
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
-  build-and-deploy:
-    runs-on: ubuntu-24.04-arm   # <--- Native ARM64 runner, no QEMU needed!
-    permissions:
-      contents: read
-      packages: write
-
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:run
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+  # Build each architecture natively (no QEMU). Manifest + CapRover deploy follow.
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: linux/amd64
+            suffix: amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            suffix: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: docker/setup-buildx-action@v4.4.1
+      - uses: docker/login-action@v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Lowercase repository name for GHCR
-        id: string_case
-        uses: ASzc/change-string-case-action@v6
-        with:
-          string: ${{ github.repository }}
-
-      - name: Build and push ARM64 image
-        uses: docker/build-push-action@v5
+      - id: meta
+        run: |
+          image=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')
+          tag=$(echo '${{ github.sha }}' | cut -c1-7)
+          echo "image=${image}:${tag}" >> "$GITHUB_OUTPUT"
+          echo "latest=${image}:latest" >> "$GITHUB_OUTPUT"
+          echo "arch=${image}:${tag}-${{ matrix.suffix }}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v7.4.0
         with:
           context: .
+          pull: true
           push: true
-          platforms: linux/arm64
+          platforms: ${{ matrix.platform }}
           build-args: |
             GIT_COMMIT=${{ github.sha }}
             GIT_BRANCH=${{ github.ref_name }}
             GIT_TAG=${{ github.ref_type == 'tag' && github.ref_name || '' }}
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
-          tags: ghcr.io/${{ steps.string_case.outputs.lowercase }}:latest
+          tags: ${{ steps.meta.outputs.arch }}
+          cache-from: type=gha,scope=build-${{ matrix.suffix }}
+          cache-to: type=gha,mode=max,scope=build-${{ matrix.suffix }}
 
-      - name: Trigger CapRover Deployment
-        uses: caprover/deploy-from-github@main
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: docker/setup-buildx-action@v4.4.1
+      - uses: docker/login-action@v4.7.0
         with:
-          server: '${{ secrets.CAPROVER_SERVER }}'
-          app: '${{ secrets.CAPROVER_APP }}'
-          token: '${{ secrets.CAPROVER_APP_TOKEN }}'
-          image: 'ghcr.io/${{ steps.string_case.outputs.lowercase }}:latest'
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        run: |
+          image=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')
+          tag=$(echo '${{ github.sha }}' | cut -c1-7)
+          echo "image=${image}:${tag}" >> "$GITHUB_OUTPUT"
+          echo "latest=${image}:latest" >> "$GITHUB_OUTPUT"
+          echo "amd64=${image}:${tag}-amd64" >> "$GITHUB_OUTPUT"
+          echo "arm64=${image}:${tag}-arm64" >> "$GITHUB_OUTPUT"
+      - name: Create multi-arch manifests
+        run: |
+          docker buildx imagetools create \
+            -t "${{ steps.meta.outputs.image }}" \
+            -t "${{ steps.meta.outputs.latest }}" \
+            "${{ steps.meta.outputs.amd64 }}" \
+            "${{ steps.meta.outputs.arm64 }}"
+      - uses: actions/checkout@v7.0.1
+      - uses: caprover/deploy-from-github@v2.0.0
+        with:
+          server: ${{ secrets.CAPROVER_SERVER }}
+          app: ${{ secrets.CAPROVER_APP }}
+          token: ${{ secrets.CAPROVER_APP_TOKEN }}
+          image: ${{ steps.meta.outputs.image }}
