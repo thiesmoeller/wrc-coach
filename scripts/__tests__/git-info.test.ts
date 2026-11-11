@@ -43,14 +43,35 @@ describe('resolveGitInfo', () => {
     expect(info.commit).toBe('abcdef1');
   });
 
+  it('uses BUILD_DATE from the image build instead of the moment the bundle is read', () => {
+    const info = resolveGitInfo({
+      runGit: () => {
+        throw new Error('not a git repo');
+      },
+      env: {
+        GIT_COMMIT: '3cfee549c3544b16f73c7b07db7196e610899581',
+        BUILD_DATE: '2026-11-11T13:58:34Z',
+      },
+    });
+    expect(info.commit).toBe('3cfee54');
+    expect(info.timestamp).toBe('2026-11-11T13:58:34Z');
+  });
+
   it('uses committed version.json only when git and env are missing', () => {
     const info = resolveGitInfo({
       runGit: () => {
         throw new Error('no git');
       },
       env: {},
-      existing: { commit: '15bddf8', branch: 'main', tag: 'v2.4.6', dirty: true },
+      existing: {
+        commit: '15bddf8',
+        branch: 'main',
+        tag: 'v2.4.6',
+        dirty: true,
+        timestamp: '2025-10-31T22:06:14.218Z',
+      },
     });
     expect(info.commit).toBe('15bddf8');
+    expect(info.timestamp).toBe('2025-10-31T22:06:14.218Z');
   });
 });

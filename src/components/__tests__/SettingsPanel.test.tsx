@@ -19,6 +19,7 @@ describe('SettingsPanel', () => {
     (globalThis as unknown as { __GIT_BRANCH__: string }).__GIT_BRANCH__ = 'main';
     (globalThis as unknown as { __GIT_TAG__: string }).__GIT_TAG__ = '';
     (globalThis as unknown as { __GIT_DIRTY__: string }).__GIT_DIRTY__ = 'false';
+    (globalThis as unknown as { __BUILD_DATE__: string }).__BUILD_DATE__ = '2026-09-08T11:02:39Z';
   });
 
   it('does not expose calibration, stroke thresholds, or phone direction', () => {
@@ -43,6 +44,8 @@ describe('SettingsPanel', () => {
     expect(screen.getByLabelText('Demo Mode (Simulated Data)')).toBeInTheDocument();
     expect(screen.getByText('Git Commit:')).toBeInTheDocument();
     expect(screen.getByText('abc123')).toBeInTheDocument();
+    expect(screen.getByText('2026-09-08')).toBeInTheDocument();
+    expect(screen.queryByText(new Date().toISOString().slice(0, 10))).toBeNull();
   });
 
   it('offers the demo scenario next to the demo toggle only while demo mode is on', () => {
