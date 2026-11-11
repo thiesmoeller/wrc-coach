@@ -162,44 +162,52 @@ export class AdaptiveStrokeDetector {
         const finishTime = this.lastDownZero;
         const driveTime = finishTime - catchTime;
 
-        const validDrive = driveTime >= this.opts.minDriveMs && this.drivePeak >= lvl.peak;
-        if (validDrive) {
-          const recoveryTime = this.lastFinish !== null ? catchTime - this.lastFinish : 0;
-          const totalTime = driveTime + recoveryTime;
-          const withinPeriod =
-            recoveryTime === 0 ||
-            (totalTime >= this.opts.minPeriodMs && totalTime <= this.opts.maxPeriodMs);
+          const validDrive = driveTime >= this.opts.minDriveMs && this.drivePeak >= lvl.peak;
+          if (validDrive) {
+            const recoveryTime = this.lastFinish !== null ? catchTime - this.lastFinish : 0;
+            const totalTime = driveTime + recoveryTime;
+            // A rest, drill, or coach-stop longer than maxPeriod used to reject
+            // this stroke *and* leave lastFinish in the past, so every later
+            // stroke failed the same check and live SPM froze for the rest of
+            // the outing.
+            const resumedAfterRest =
+              recoveryTime === 0 ||
+              recoveryTime > this.opts.maxPeriodMs ||
+              totalTime > this.opts.maxPeriodMs;
+            const tooShort = !resumedAfterRest && totalTime < this.opts.minPeriodMs;
 
-          if (withinPeriod) {
-            let strokeRate = 0;
-            let drivePercent = 0;
-            if (totalTime > 0 && recoveryTime > 0) {
-              strokeRate = Math.round(60000 / totalTime);
-              drivePercent = Math.round((driveTime / totalTime) * 100);
-              this.lastDriveTime = driveTime;
-              this.lastRecoveryTime = recoveryTime;
-              this.lastDrivePercent = drivePercent;
+            if (!tooShort) {
+              let strokeRate = 0;
+              let drivePercent = 0;
+              if (!resumedAfterRest && totalTime > 0 && recoveryTime > 0) {
+                strokeRate = Math.round(60000 / totalTime);
+                drivePercent = Math.round((driveTime / totalTime) * 100);
+                this.lastDriveTime = driveTime;
+                this.lastRecoveryTime = recoveryTime;
+                this.lastDrivePercent = drivePercent;
+              } else if (driveTime > 0) {
+                this.lastDriveTime = driveTime;
+              }
+
+              this.strokeCount++;
+              completed = {
+                index: this.strokeCount,
+                catchTime,
+                finishTime,
+                driveTime,
+                recoveryTime: resumedAfterRest ? 0 : recoveryTime,
+                strokeRate,
+                drivePercent,
+                peakDriveAccel: this.drivePeak,
+                catchSharpness: this.driveJerk,
+                minRecoveryAccel: this.recoveryMin,
+              };
+              this.strokes.push(completed);
+
+              this.lastCatch = catchTime;
+              this.lastFinish = finishTime;
             }
-
-            this.strokeCount++;
-            completed = {
-              index: this.strokeCount,
-              catchTime,
-              finishTime,
-              driveTime,
-              recoveryTime,
-              strokeRate,
-              drivePercent,
-              peakDriveAccel: this.drivePeak,
-              catchSharpness: this.driveJerk,
-              minRecoveryAccel: this.recoveryMin,
-            };
-            this.strokes.push(completed);
-
-            this.lastCatch = catchTime;
-            this.lastFinish = finishTime;
           }
-        }
 
         // Return to recovery regardless (avoids getting stuck mid-drive).
         this.phase = 'recovery';
