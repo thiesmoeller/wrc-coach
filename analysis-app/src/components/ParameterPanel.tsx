@@ -19,13 +19,15 @@ export const ParameterPanel: React.FC = () => {
       <ol className="pipeline-steps">
         <li>
           <strong>Orientation</strong>
-          Madgwick AHRS tracks gravity from accel + gyro, so a tilted phone
-          does not contaminate surge.
+          A slow gravity tracker follows the phone's up direction from the
+          accelerometer and gyro. Stroke acceleration is averaged out instead
+          of being read as tilt.
         </li>
         <li>
           <strong>Boat frame</strong>
-          Principal-component analysis of horizontal linear accel finds the
-          fore–aft axis. Drive skewness picks bow vs stern (rower or coxswain).
+          The fore–aft axis is the main direction of acceleration in the phone.
+          GPS speed changes confirm which end is the bow; until then the sharp
+          acceleration at the catch does. Level is the boat's own average attitude.
         </li>
         <li>
           <strong>Stroke detection</strong>

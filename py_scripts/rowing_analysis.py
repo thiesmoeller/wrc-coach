@@ -2,13 +2,12 @@
 """
 rowing_analysis.py — offline rowing analysis & aggregation for .wrcdata sessions.
 
-This is the offline mirror of the app's real-time `RowingPipeline`
-(`src/lib/analysis/RowingPipeline.ts`). It runs the SAME processing chain —
-sample-rate estimation → Madgwick AHRS gravity removal → PCA-derived boat frame →
-band-pass → adaptive zero-crossing stroke detection → INS/GPS speed fusion — so
-the numbers you review afterwards match what the athlete saw on the water. The
-legacy offline examples filtered raw phone `ay`, which only worked for a
-perfectly-mounted phone and ignored gravity and heading entirely.
+This is the previous offline chain (Madgwick AHRS, then a PCA boat frame whose
+bow comes from surge skewness). It is no longer a mirror of
+`src/lib/analysis/RowingPipeline.ts`: the app now tracks gravity in the phone
+frame and confirms the bow from GPS speed changes. Treat these numbers as the
+old analysis, not as what the athlete saw on the water. The legacy examples
+filtered raw phone `ay`, which only worked for a perfectly-mounted phone.
 
 Being offline, it takes two liberties the real-time path cannot:
   * zero-phase (forward-backward) band-pass filtering, so catch/finish timing is

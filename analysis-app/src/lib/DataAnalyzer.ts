@@ -5,9 +5,9 @@ import { alignRecordingGps } from '@wrc-coach/lib/sensors/alignRecordingGps';
 /**
  * Offline analysis of a recorded session.
  *
- * Uses the same RowingPipeline as the live PWA: Madgwick AHRS gravity removal,
- * PCA-derived boat frame (no phone-orientation setting), adaptive zero-crossing
- * stroke detection (no catch/finish thresholds), and INS/GPS speed fusion.
+ * Uses the same RowingPipeline as the live PWA: gravity tracking in the phone
+ * frame, a boat frame whose bow GPS can confirm, adaptive zero-crossing stroke
+ * detection, and INS/GPS speed fusion.
  */
 export class DataAnalyzer {
   static analyze(data: SessionData): AnalysisResults {

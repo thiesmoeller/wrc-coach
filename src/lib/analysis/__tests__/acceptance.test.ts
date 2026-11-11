@@ -45,7 +45,7 @@ describe('A1 roll: error RMS < 0.3° from 45 s to the end of a 120 s session', (
   // axis; the recording starts at four different points of the stroke, i.e.
   // with the boat leaning four different ways when "Start" is pressed.
   for (const startPhase of [0, 0.25, 0.5, 0.75]) {
-    notYet(`recording starts at stroke phase ${startPhase}`, () => {
+    it(`recording starts at stroke phase ${startPhase}`, () => {
       const data = generateSyntheticRow({
         durationS: SESSION_S,
         startPhase,
@@ -62,7 +62,7 @@ describe('A1 roll: error RMS < 0.3° from 45 s to the end of a 120 s session', (
   }
 
   for (const preset of ['skiffApproachDrift', 'skiffApproachWobble'] as const) {
-    notYet(`${preset} preset`, () => {
+    it(`${preset} preset`, () => {
       const data = generateSyntheticRow({ ...SCENARIOS[preset], durationS: SESSION_S });
       const r = validatePipeline(data, { window: ATTITUDE_WINDOW });
       rollLine(`A1 ${preset}`, r, ROLL_RMS_MAX_DEG);
@@ -75,7 +75,7 @@ describe('A2 pitch: error RMS < 1.0° at 24 SPM, same window', () => {
   // A small real pitch (0.3°, bow highest at the catch) so the estimate is
   // judged against truth rather than against zero.
   for (const surgeProfile of ['legacy', 'realistic'] as const) {
-    notYet(`${surgeProfile} surge profile`, () => {
+    it(`${surgeProfile} surge profile`, () => {
       const data = generateSyntheticRow({
         surgeProfile,
         strokeRate: 24,
@@ -174,7 +174,7 @@ describe('A4 bow sign with GPS: + surge points at the bow from 30 s onward (star
 });
 
 describe('A5 turning: roll error RMS < 0.5° on a steady 2°/s turn', () => {
-  notYet('turning preset', () => {
+  it('turning preset', () => {
     const data = generateSyntheticRow({ ...SCENARIOS.turning, turnRateDegS: 2, durationS: SESSION_S });
     const r = validatePipeline(data, { window: ATTITUDE_WINDOW });
     rollLine('A5 turning', r, TURNING_ROLL_RMS_MAX_DEG);
@@ -188,21 +188,20 @@ describe('A5 turning: roll error RMS < 0.5° on a steady 2°/s turn', () => {
  * numeric thresholds, only signs.
  */
 describe('Additional findings (added with the validation base)', () => {
-  // A4 passes today because at the preset's 22 SPM the skewness rule happens
-  // to pick the bow. At racing rates the deep check dominates the skewness and
-  // it locks onto the stern, start from rest or not.
+  // Bow sign on a start from rest, including racing rates where surge skewness
+  // used to lock onto the stern. GPS speed changes confirm the sign; the
+  // stroke-shape fallback is the surge-jerk rule.
   for (const mountYawDeg of [0, 180]) {
     for (const seed of [1, 2, 3]) {
-      notYet(`X1 bow sign from rest at 36 SPM: phone yaw ${mountYawDeg}°, seed ${seed}`, () => {
+      it(`X1 bow sign from rest at 36 SPM: phone yaw ${mountYawDeg}°, seed ${seed}`, () => {
         bowSignCase(`X1 36 SPM yaw ${mountYawDeg}° seed ${seed}`, fromRest({ strokeRate: 36, mountYawDeg, seed }));
       });
     }
   }
 
-  // ProcessedSample documents pitch as "+bow up"; the pipeline reports bow
-  // down as positive. A large (5°) real pitch under a light stroke isolates
-  // the sign from the surge-leak artefact that A2 measures.
-  notYet('X2 pitch sign: a bow-up attitude reads as positive pitch', () => {
+  // Pitch is positive when the bow is up. A 5° bow-up attitude under a light
+  // stroke checks that sign on its own, apart from the surge leak A2 measures.
+  it('X2 pitch sign: a bow-up attitude reads as positive pitch', () => {
     const data = generateSyntheticRow(
       fromRest({ strokeRate: 20, driveAccelPeak: 0.6, rollAmpDeg: 0, rollOffsetDeg: 0, pitchAmpDeg: 5 }),
     );

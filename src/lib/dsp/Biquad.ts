@@ -40,6 +40,12 @@ export class Biquad {
     return y;
   }
 
+  /** Continue as if every input so far had had the opposite sign. */
+  invert(): void {
+    this.z1 = -this.z1;
+    this.z2 = -this.z2;
+  }
+
   reset(): void {
     this.z1 = 0;
     this.z2 = 0;
@@ -119,6 +125,12 @@ export class ButterworthBandpass {
 
   process(x: number): number {
     return this.lp.process(this.hp.process(x));
+  }
+
+  /** Continue as if every input so far had had the opposite sign. */
+  invert(): void {
+    this.hp.invert();
+    this.lp.invert();
   }
 
   reset(): void {

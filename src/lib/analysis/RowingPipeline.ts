@@ -1,24 +1,30 @@
 import { SampleRateEstimator } from '../dsp/SampleRateEstimator';
-import { MadgwickAHRS } from '../dsp/MadgwickAHRS';
+import { GravityFilter, type GravityFilterOptions } from '../dsp/GravityFilter';
+import { BoatFrameEstimator, type BoatFrameOptions, type BowSignSource } from '../dsp/BoatFrameEstimator';
 import { ButterworthBandpass } from '../dsp/Biquad';
-import { HorizontalAxisEstimator } from '../dsp/HorizontalAxisEstimator';
 import { AdaptiveStrokeDetector, type StrokeMetrics, type AdaptiveStrokeOptions } from '../stroke-detection/AdaptiveStrokeDetector';
 import { SpeedEstimator } from './SpeedEstimator';
 import type { Vec3 } from '../dsp/quaternion';
 
 const DEG2RAD = Math.PI / 180;
+const RAD2DEG = 180 / Math.PI;
 
 export interface RowingPipelineOptions {
   /** Band-pass cut-offs for the surge signal (Hz). */
   bandLowHz?: number;
   bandHighHz?: number;
-  /** Madgwick gain once warmed up. */
-  madgwickBeta?: number;
   /** Fallback sample rate before enough timestamps are seen (Hz). */
   fallbackRateHz?: number;
+  gravityOptions?: GravityFilterOptions;
+  boatFrameOptions?: BoatFrameOptions;
   strokeOptions?: AdaptiveStrokeOptions;
 }
 
+/**
+ * Boat frame: surge + = toward the bow, sway + = toward starboard, heave + =
+ * up. Angles and rates follow the right-hand rule about bow / starboard / up
+ * except where stated.
+ */
 export interface ProcessedSample {
   t: number;
   /** Band-passed surge acceleration (m/s²), zero-mean — drives stroke plots. */
@@ -27,10 +33,44 @@ export interface ProcessedSample {
   surgeLinear: number;
   sway: number;
   heave: number;
-  /** Boat lean about the fore–aft axis (deg, +starboard) — the "set". */
+  /**
+   * Boat lean about the fore–aft axis (deg, + = starboard side down) — the
+   * "set". Zero is the boat's own average attitude over about the last minute
+   * (over the recent half of the session while that is shorter).
+   */
   roll: number;
-  /** Boat trim about the lateral axis (deg, +bow up). */
+  /** Boat trim about the lateral axis (deg, + = bow up), same zero. */
   pitch: number;
+  /**
+   * Gyro about the bow axis, bias removed (deg/s, + = starboard side going
+   * down): the time derivative of `roll`, unfiltered.
+   */
+  rollRate: number;
+  /** Gyro about the lateral axis, bias removed (deg/s, + = bow rising). */
+  pitchRate: number;
+  /**
+   * Gyro about the up axis (deg/s, + = bow turning to port). Unlike the other
+   * two it still carries the gyro's own bias about the vertical, which nothing
+   * in an IMU can observe.
+   */
+  yawRate: number;
+  /**
+   * What decided which way is the bow, and with it which side is starboard:
+   * 'gps' once speed changes have confirmed it, 'shape' while it is only
+   * inferred from the stroke shape (treat as unconfirmed).
+   */
+  bowSignSource: BowSignSource;
+  /** Confidence in that decision, 0..1. */
+  bowConfidence: number;
+  /**
+   * True on the one sample where the bow direction reversed. From here on
+   * surge, sway, roll, pitch and the roll / pitch rates have the opposite sign
+   * to what was reported before, and stroke detection starts afresh. Expect
+   * one a few seconds into a session, when the first decision replaces the
+   * provisional direction, and one more if GPS later overrules the stroke
+   * shape.
+   */
+  bowFlipped: boolean;
   inDrive: boolean;
   strokeAngle: number;
   speed: number;
@@ -42,46 +82,44 @@ export interface ProcessedSample {
 
 /**
  * RowingPipeline — the single, shared definition of how raw phone IMU + GPS
- * become rowing metrics. Both the live app and the offline Python analysis
- * follow this exact sequence, so what you see on the water matches what you
- * analyse afterwards (the legacy code had two divergent pipelines: the app used
- * boat-frame surge while the offline/analysis code filtered raw phone `ay`).
+ * become rowing metrics, used by the live app and by the offline analysis.
+ * Everything up to the boat-frame channels happens in the phone frame; no
+ * heading is involved.
  *
  * Stages, in order:
  *   1. Measure the true sample rate from timestamps.
- *   2. Madgwick AHRS → drift-free orientation quaternion.
- *   3. Rotate accel into the earth frame and subtract the tracked gravity →
- *      linear acceleration.
- *   4. PCA of the horizontal linear accel → data-driven fore–aft (surge) and
- *      lateral (sway) axes (independent of how the phone is mounted).
- *   5. Sample-rate-correct Butterworth band-pass on surge.
- *   6. Adaptive, zero-crossing stroke detection with rich per-stroke metrics.
- *   7. Loosely-coupled INS/GPS Kalman filter → live speed & distance.
- *   8. Boat set (roll) and trim (pitch) from a reference deck normal.
+ *   2. Orientation filter → direction of gravity in the phone frame and gyro
+ *      bias.
+ *   3. Subtract gravity → linear acceleration.
+ *   4. Boat frame → up (level reference), bow and starboard as fixed
+ *      directions in the phone.
+ *   5. Project: surge / sway / heave, roll / pitch against the level
+ *      reference, and the gyro as roll / pitch / yaw rate.
+ *   6. Sample-rate-correct Butterworth band-pass on surge.
+ *   7. Adaptive, zero-crossing stroke detection with rich per-stroke metrics.
+ *   8. Loosely-coupled INS/GPS Kalman filter → live speed & distance.
  */
 export class RowingPipeline {
   readonly sampleRate = new SampleRateEstimator();
-  readonly ahrs: MadgwickAHRS;
+  readonly gravity: GravityFilter;
+  readonly frame: BoatFrameEstimator;
   readonly bandpass: ButterworthBandpass;
-  readonly axis = new HorizontalAxisEstimator();
   readonly detector: AdaptiveStrokeDetector;
   readonly speed = new SpeedEstimator();
 
-  private opts: Required<Omit<RowingPipelineOptions, 'strokeOptions'>>;
-  private gravityMag = 9.81;
-  private sampleIdx = 0;
-  private deckNormal: Vec3 | null = null;
+  private opts: Required<Pick<RowingPipelineOptions, 'bandLowHz' | 'bandHighHz' | 'fallbackRateHz'>>;
   private redesigned = false;
+  private readonly lin: Vec3 = { x: 0, y: 0, z: 0 };
+  private readonly accel: Vec3 = { x: 0, y: 0, z: 0 };
 
   constructor(options: RowingPipelineOptions = {}) {
     this.opts = {
       bandLowHz: options.bandLowHz ?? 0.2,
       bandHighHz: options.bandHighHz ?? 2.0,
-      madgwickBeta: options.madgwickBeta ?? 0.08,
       fallbackRateHz: options.fallbackRateHz ?? 50,
     };
-    // Warm up the AHRS with a high gain so it locks onto gravity quickly.
-    this.ahrs = new MadgwickAHRS(0.5);
+    this.gravity = new GravityFilter(options.gravityOptions);
+    this.frame = new BoatFrameEstimator(options.boatFrameOptions);
     this.bandpass = new ButterworthBandpass(
       this.opts.bandLowHz,
       this.opts.bandHighHz,
@@ -106,56 +144,56 @@ export class RowingPipeline {
   ): ProcessedSample {
     const dt = this.sampleRate.update(t);
     const rateHz = this.sampleRate.getRate(this.opts.fallbackRateHz);
-    this.sampleIdx++;
 
-    // Seed orientation from the very first accel sample so we don't swing in
-    // from the identity quaternion.
-    if (this.sampleIdx === 1) {
-      this.ahrs.initFromAccel(ax, ay, az);
-    }
+    const wx = gx * DEG2RAD;
+    const wy = gy * DEG2RAD;
+    const wz = gz * DEG2RAD;
+    this.gravity.update(wx, wy, wz, ax, ay, az, dt);
+    const g = this.gravity.up;
+    const gMag = this.gravity.getGravityMagnitude();
 
-    // Drop the warm-up gain once settled (≈1 s) for low-noise tracking.
-    if (this.sampleIdx === 60) this.ahrs.setBeta(this.opts.madgwickBeta);
+    const lin = this.lin;
+    lin.x = ax - gMag * g.x;
+    lin.y = ay - gMag * g.y;
+    lin.z = az - gMag * g.z;
 
-    const q = this.ahrs.update(
-      gx * DEG2RAD, gy * DEG2RAD, gz * DEG2RAD,
-      ax, ay, az,
-      dt || 1 / rateHz,
-    );
-    void q;
+    const accel = this.accel;
+    accel.x = ax;
+    accel.y = ay;
+    accel.z = az;
 
-    // Earth-frame acceleration (gravity still present, along +Z at rest).
-    const aE = this.ahrs.toEarth({ x: ax, y: ay, z: az });
+    const bowFlipped = this.frame.update(g, lin, accel, dt);
+    const bow = this.frame.bow;
+    const stb = this.frame.starboard;
+    const up = this.frame.up;
 
-    // Track gravity magnitude as the slow component of the vertical channel.
-    const gAlpha = dt > 0 ? 1 - Math.exp(-dt / 5) : 0.01;
-    this.gravityMag += gAlpha * (aE.z - this.gravityMag);
+    const surgeLinear = lin.x * bow.x + lin.y * bow.y + lin.z * bow.z;
+    const sway = lin.x * stb.x + lin.y * stb.y + lin.z * stb.z;
+    // Along the true vertical, not the boat's up axis.
+    const heave = ax * g.x + ay * g.y + az * g.z - gMag;
 
-    const linX = aE.x;
-    const linY = aE.y;
-    const heave = aE.z - this.gravityMag;
+    // Gravity seen from the boat axes: a starboard-down roll tips it toward
+    // port, a bow-up pitch tips it toward the bow.
+    const gBow = g.x * bow.x + g.y * bow.y + g.z * bow.z;
+    const gStb = g.x * stb.x + g.y * stb.y + g.z * stb.z;
+    const gUp = g.x * up.x + g.y * up.y + g.z * up.z;
+    const roll = Math.atan2(-gStb, gUp) * RAD2DEG;
+    const pitch = Math.atan2(gBow, Math.hypot(gStb, gUp)) * RAD2DEG;
 
-    // Data-driven boat frame.
-    this.axis.update(linX, linY, dt || 1 / rateHz);
-    const f = this.axis.getForward();
-    const s = this.axis.getStarboard();
-    const surgeLinear = linX * f.x + linY * f.y;
-    const sway = linX * s.x + linY * s.y;
+    const bias = this.gravity.bias;
+    const rx = wx - bias.x;
+    const ry = wy - bias.y;
+    const rz = wz - bias.z;
+    const rollRate = (rx * bow.x + ry * bow.y + rz * bow.z) * RAD2DEG;
+    const pitchRate = (rx * stb.x + ry * stb.y + rz * stb.z) * RAD2DEG;
+    const yawRate = (rx * up.x + ry * up.y + rz * up.z) * RAD2DEG;
 
-    // Capture the reference deck normal once orientation has settled.
-    if (this.deckNormal === null && this.sampleIdx >= 30) {
-      this.deckNormal = this.ahrs.getGravitySensor();
-    }
-
-    // Boat set (roll) & trim (pitch) from the deck normal.
-    let roll = 0;
-    let pitch = 0;
-    if (this.deckNormal) {
-      const up = this.ahrs.toEarth(this.deckNormal); // boat up in earth frame
-      const bf = up.x * f.x + up.y * f.y; // component along fore–aft
-      const bs = up.x * s.x + up.y * s.y; // component along starboard
-      roll = Math.atan2(bs, up.z) / DEG2RAD;
-      pitch = Math.atan2(bf, up.z) / DEG2RAD;
+    if (bowFlipped) {
+      // The band-pass is linear, so negating its state continues it exactly as
+      // if the sign had been right all along. The detector's half-tracked
+      // stroke is meaningless with the polarity reversed.
+      this.bandpass.invert();
+      this.detector.restartTracking();
     }
 
     // Retune the band-pass to the measured rate once it stabilises.
@@ -181,6 +219,12 @@ export class RowingPipeline {
       heave,
       roll,
       pitch,
+      rollRate,
+      pitchRate,
+      yawRate,
+      bowSignSource: this.frame.getBowSignSource(),
+      bowConfidence: this.frame.getBowConfidence(),
+      bowFlipped,
       inDrive,
       strokeAngle,
       speed: this.speed.getSpeed(),
@@ -190,8 +234,12 @@ export class RowingPipeline {
     };
   }
 
-  /** Fuse a GPS speed fix. Returns the corrected speed. */
+  /**
+   * Fuse a GPS speed fix, taken to arrive now (at the latest IMU sample).
+   * Returns the corrected speed.
+   */
   processGPS(gpsSpeed: number, accuracy = 5): number {
+    this.frame.updateGps(gpsSpeed);
     this.speed.updateGps(gpsSpeed, accuracy);
     return this.speed.getSpeed();
   }
@@ -202,15 +250,11 @@ export class RowingPipeline {
 
   reset(): void {
     this.sampleRate.reset();
-    this.ahrs.reset();
-    this.ahrs.setBeta(0.5);
+    this.gravity.reset();
+    this.frame.reset();
     this.bandpass.reset();
-    this.axis.reset();
     this.detector.reset();
     this.speed.reset();
-    this.gravityMag = 9.81;
-    this.sampleIdx = 0;
-    this.deckNormal = null;
     this.redesigned = false;
   }
 }

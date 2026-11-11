@@ -63,4 +63,18 @@ describe('ButterworthBandpass', () => {
     const g = sineGain((x) => f.process(x), 0.5, 100);
     expect(g).toBeGreaterThan(0.6);
   });
+
+  it('invert() continues exactly as if the input had always had the opposite sign', () => {
+    const signal = (i: number) => 9.81 + 2 * Math.sin(0.07 * i) + Math.sin(0.31 * i + 1);
+    const a = bp();
+    const b = bp();
+    for (let i = 0; i < 300; i++) {
+      a.process(signal(i));
+      b.process(-signal(i));
+    }
+    a.invert();
+    for (let i = 300; i < 600; i++) {
+      expect(a.process(-signal(i))).toBeCloseTo(b.process(-signal(i)), 12);
+    }
+  });
 });

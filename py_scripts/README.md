@@ -16,13 +16,10 @@ pip install pandas numpy matplotlib
 
 ### 0. `rowing_analysis.py` — SOTA offline analysis & aggregation ⭐
 
-The offline mirror of the app's real-time `RowingPipeline`
-(`src/lib/analysis/RowingPipeline.ts`): sample-rate estimation → Madgwick AHRS
-gravity removal → PCA-derived boat frame → band-pass → adaptive zero-crossing
-stroke detection → INS/GPS speed fusion. Because it runs the *same* chain, the
-post-session numbers match what the athlete saw on the water. Being offline it
-uses **zero-phase** filtering (unbiased catch/finish timing) and whole-session
-PCA.
+The previous offline chain (Madgwick AHRS, PCA boat frame, surge-skewness bow).
+It does not match the current `RowingPipeline`, which tracks gravity in the
+phone frame and confirms the bow from GPS. Being offline it uses **zero-phase**
+filtering and whole-session PCA.
 
 **Usage:**
 ```bash
