@@ -187,6 +187,27 @@
   line-height: 1.4;
 }
 
+.demo-scenario {
+  margin-top: 1rem;
+}
+
+/* The highlighted block keeps its light background in dark mode. */
+.demo-mode-highlight .demo-scenario label,
+.demo-mode-highlight .demo-scenario .setting-help {
+  color: #7f1d1d;
+}
+
+.setting-select {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: white;
+  color: #1f2937;
+  font-size: 1rem;
+}
+
 .checkbox-label {
   display: flex;
   align-items: center;
@@ -266,6 +287,12 @@
 
   .setting-control input[type="range"] {
     background: #374151;
+  }
+
+  .setting-select {
+    background: #111827;
+    color: #e5e7eb;
+    border-color: #374151;
   }
 
   .setting-help {

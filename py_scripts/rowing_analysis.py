@@ -559,8 +559,10 @@ def main():
     args = ap.parse_args()
 
     reader = WRCDataReader(args.file)
+    # The reader puts GPS fixes on the IMU clock (older recordings stamp them in epoch ms).
     header, imu, gps, _cal = reader.read_as_numpy()
-    print(f"Read {args.file}: V{header.version}, {len(imu)} IMU + {len(gps)} GPS samples")
+    print(f"Read {args.file}: V{header.version}, {len(imu)} IMU + {len(gps)} GPS samples "
+          f"(GPS clock: {header.gps_clock})")
 
     result = analyze(imu, gps)
     print_summary(result["summary"])

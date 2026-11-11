@@ -35,6 +35,26 @@ describe('useSettings', () => {
     expect(result.current.settings).not.toHaveProperty('phoneOrientation');
   });
 
+  it('defaults the demo scenario and persists a change', () => {
+    const { result } = renderHook(() => useSettings());
+    expect(result.current.settings.demoScenario).toBe('skiffApproachWobble');
+    act(() => {
+      result.current.updateSettings({ demoScenario: 'crewCatchSpread' });
+    });
+    expect(result.current.settings.demoScenario).toBe('crewCatchSpread');
+    expect(JSON.parse(localStorage.getItem('strokeCoachSettings')!).demoScenario).toBe('crewCatchSpread');
+
+    const reloaded = renderHook(() => useSettings());
+    expect(reloaded.result.current.settings.demoScenario).toBe('crewCatchSpread');
+  });
+
+  it('falls back to the default for a stored demo scenario that no longer exists', () => {
+    localStorage.setItem('strokeCoachSettings', JSON.stringify({ demoMode: true, demoScenario: 'retiredScenario' }));
+    const { result } = renderHook(() => useSettings());
+    expect(result.current.settings.demoMode).toBe(true);
+    expect(result.current.settings.demoScenario).toBe('skiffApproachWobble');
+  });
+
   it('persists visualization updates without reintroducing legacy keys', () => {
     const { result } = renderHook(() => useSettings());
     act(() => {

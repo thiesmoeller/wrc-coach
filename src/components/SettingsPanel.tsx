@@ -1,4 +1,5 @@
 import { AppSettings } from '../hooks/useSettings';
+import { DEMO_SCENARIOS, DEMO_SCENARIO_LABELS, isDemoScenario } from '../lib/demo/scenarios';
 import './SettingsPanel.css';
 
 interface SettingsPanelProps {
@@ -128,6 +129,27 @@ export function SettingsPanel({ isOpen, onClose, settings, updateSettings, reset
                   </>
                 )}
               </p>
+
+              {settings.demoMode && (
+                <div className="demo-scenario">
+                  <label htmlFor="demoScenario">Demo scenario</label>
+                  <select
+                    id="demoScenario"
+                    className="setting-select"
+                    value={settings.demoScenario}
+                    onChange={(e) => {
+                      if (isDemoScenario(e.target.value)) updateSettings({ demoScenario: e.target.value });
+                    }}
+                  >
+                    {DEMO_SCENARIOS.map((key) => (
+                      <option key={key} value={key}>
+                        {DEMO_SCENARIO_LABELS[key]}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="setting-help">The simulated boat restarts when the scenario changes.</p>
+                </div>
+              )}
             </div>
           </div>
 

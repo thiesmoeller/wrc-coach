@@ -1,5 +1,6 @@
 import type { SessionData, AnalysisResults } from '../types';
 import { RowingPipeline } from '@wrc-coach/lib/analysis/RowingPipeline';
+import { alignRecordingGps } from '@wrc-coach/lib/sensors/alignRecordingGps';
 
 /**
  * Offline analysis of a recorded session.
@@ -41,7 +42,9 @@ export class DataAnalyzer {
     const filteredAcceleration: number[] = [];
 
     let gpsIdx = 0;
-    const gps = data.gpsSamples;
+    // Older recordings stamp GPS in epoch ms and the IMU in performance.now()
+    // ms; without this no fix would ever be reached by the IMU clock.
+    const gps = alignRecordingGps(data).recording.gpsSamples;
 
     for (const s of imuSamples) {
       while (gpsIdx < gps.length && gps[gpsIdx].t <= s.t) {

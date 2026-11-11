@@ -40,6 +40,10 @@ class Header:
     calibration_count: int = 0        # V2 only
     has_calibration: bool = False     # V2 only
     calibration: Optional[CalibrationData] = None  # V2 only
+    # How the GPS timestamps returned by the reader relate to the IMU clock:
+    # 'shared', 'session-start', 'first-sample', 'no-gps' (see align_gps_clock)
+    # or 'raw' when read with align_gps=False.
+    gps_clock: str = 'raw'
 
 
 @dataclass
@@ -66,6 +70,49 @@ class GPSSample:
     accuracy: float  # meters
 
 
+# Epoch milliseconds exceed any performance.now() value by far more than this.
+GPS_CLOCK_MISMATCH_MS = 1e10
+GPS_HEADER_SLACK_MS = 60_000.0
+
+
+def align_gps_clock(imu_t, gps_t, session_start: float) -> Tuple[np.ndarray, str]:
+    """Put GPS timestamps on the IMU clock.
+
+    Older recordings stamp IMU samples with performance.now() (ms since page
+    load) but GPS fixes with epoch ms, so the two cannot be interleaved by
+    time. When the GPS times lie far beyond the IMU times, each fix keeps its
+    offset from the session-start header and the first IMU sample is taken as
+    the session start. Recordings that already share one clock are returned
+    unchanged, so this is safe to apply to any file.
+
+    Mirrors alignGpsClock in src/lib/analysis/validation/recordingCheck.ts.
+
+    Returns (aligned GPS times in ms, clock) where clock is one of
+      'shared'        GPS and IMU already share a clock
+      'session-start' GPS was in epoch ms; placed by its offset from the header
+      'first-sample'  GPS was in epoch ms and the header was unusable; the
+                      first fix is placed on the first IMU sample
+      'no-gps'        nothing to align
+    """
+    imu_t = np.asarray(imu_t, dtype=float)
+    gps_t = np.asarray(gps_t, dtype=float)
+    if imu_t.size == 0 or gps_t.size == 0:
+        return gps_t.copy(), 'no-gps'
+
+    imu_start = imu_t[0]
+    if gps_t[0] - imu_start <= GPS_CLOCK_MISMATCH_MS:
+        return gps_t.copy(), 'shared'
+
+    duration_ms = imu_t[-1] - imu_start
+    first_offset = gps_t[0] - session_start
+    header_usable = bool(
+        np.isfinite(first_offset)
+        and -GPS_HEADER_SLACK_MS <= first_offset <= duration_ms + GPS_HEADER_SLACK_MS
+    )
+    origin = session_start if header_usable else gps_t[0]
+    return imu_start + (gps_t - origin), 'session-start' if header_usable else 'first-sample'
+
+
 class WRCDataReader:
     """Reader for .wrcdata binary files (V1, V2, and V3)"""
     
@@ -84,8 +131,13 @@ class WRCDataReader:
     def __init__(self, filepath: str):
         self.filepath = Path(filepath)
         
-    def read(self) -> Tuple[Header, List[IMUSample], List[GPSSample], List[IMUSample]]:
-        """Read entire file - returns (header, imu_samples, gps_samples, calibration_samples)"""
+    def read(self, align_gps: bool = True) -> Tuple[Header, List[IMUSample], List[GPSSample], List[IMUSample]]:
+        """Read entire file - returns (header, imu_samples, gps_samples, calibration_samples)
+
+        GPS timestamps are moved onto the IMU clock (see align_gps_clock) and the
+        result is reported in header.gps_clock; pass align_gps=False for the
+        timestamps exactly as stored.
+        """
         with open(self.filepath, 'rb') as f:
             data = f.read()
         
@@ -143,11 +195,20 @@ class WRCDataReader:
                 calibration_samples.append(sample)
                 offset += imu_sample_size
         
+        if align_gps:
+            aligned_t, header.gps_clock = align_gps_clock(
+                [s.timestamp for s in imu_samples],
+                [s.timestamp for s in gps_samples],
+                header.session_start,
+            )
+            for sample, t in zip(gps_samples, aligned_t):
+                sample.timestamp = float(t)
+        
         return header, imu_samples, gps_samples, calibration_samples
     
-    def read_as_numpy(self) -> Tuple[Header, np.ndarray, np.ndarray, np.ndarray]:
-        """Read data as numpy arrays for fast processing"""
-        header, imu_list, gps_list, cal_list = self.read()
+    def read_as_numpy(self, align_gps: bool = True) -> Tuple[Header, np.ndarray, np.ndarray, np.ndarray]:
+        """Read data as numpy arrays for fast processing (GPS on the IMU clock unless align_gps=False)"""
+        header, imu_list, gps_list, cal_list = self.read(align_gps=align_gps)
         
         # Convert to numpy arrays
         imu_dtype = [
@@ -186,9 +247,9 @@ class WRCDataReader:
         
         return header, imu_array, gps_array, cal_array
     
-    def read_as_dataframes(self) -> Tuple[Header, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        """Read data as pandas DataFrames for easy analysis"""
-        header, imu_list, gps_list, cal_list = self.read()
+    def read_as_dataframes(self, align_gps: bool = True) -> Tuple[Header, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """Read data as pandas DataFrames for easy analysis (GPS on the IMU clock unless align_gps=False)"""
+        header, imu_list, gps_list, cal_list = self.read(align_gps=align_gps)
         
         # Convert IMU samples to DataFrame
         imu_df = pd.DataFrame([
@@ -472,7 +533,7 @@ if __name__ == '__main__':
     print(f"✓ Successfully read {filepath}")
     print(f"  Format: V{header.version}")
     print(f"  IMU samples: {len(imu):,}")
-    print(f"  GPS samples: {len(gps):,}")
+    print(f"  GPS samples: {len(gps):,} (clock: {header.gps_clock})")
     if len(imu) > 0:
         print(f"  Duration: {(imu[-1].timestamp - imu[0].timestamp) / 1000:.1f} seconds")
     print(f"  Phone: {header.phone_orientation}")

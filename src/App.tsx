@@ -11,6 +11,7 @@ import { UpdateNotification } from './components/UpdateNotification';
 import { KeepAwakeNotice } from './components/KeepAwakeNotice';
 import { useSettings, useDeviceMotion, useDeviceOrientation, useGeolocation, useWakeLock, useBackgroundInterruptions, useSessionStorage, type MotionData, type GPSData, type OrientationData } from './hooks';
 import { RowingPipeline } from './lib/analysis';
+import { demoSource } from './lib/demo';
 import { convertToSplitTime } from './utils/conversions';
 import './App.css';
 
@@ -98,19 +99,11 @@ function App() {
   const speedsRef = useRef<number[]>([]);
   const rollSamplesRef = useRef<number[]>([]);
   
-  // Helper: Limit UI samples to last 2 minutes
+  // Helper: Limit UI samples to last 2 minutes. Every sample (IMU, orientation,
+  // GPS, demo) is stamped on the performance.now() clock.
   const limitUISamples = useCallback((newSamples: Sample[]) => {
-    if (!sessionStartTimeRef.current) return newSamples;
-    
-      const cutoffTime = Date.now() - UI_SAMPLES_DURATION_MS;
-      return newSamples.filter(s => {
-        const sampleTime = s.t || 0;
-        // If sample time is relative (smaller than session start), convert to absolute
-        const absoluteTime = sampleTime < sessionStartTimeRef.current! 
-          ? sessionStartTimeRef.current! + sampleTime 
-          : sampleTime;
-        return absoluteTime >= cutoffTime;
-      });
+    const cutoffTime = performance.now() - UI_SAMPLES_DURATION_MS;
+    return newSamples.filter(s => s.t >= cutoffTime);
   }, []);
   
   // Sensor status tracking
@@ -306,13 +299,24 @@ function App() {
   // Setup sensors — IMU stays on so the header can show live sensor status
   // even before a session starts.
   // IMU/Gyro: Event-driven, typically 50-100 Hz (device dependent, includes 60 Hz)
-  useDeviceMotion({ onMotion: handleMotion, enabled: true, demoMode: settings.demoMode });
+  useDeviceMotion({
+    onMotion: handleMotion,
+    enabled: true,
+    demoMode: settings.demoMode,
+    demoScenario: settings.demoScenario,
+    recording: isRunning,
+  });
   
   // Device Orientation: Compass/heading (available on all phones via DeviceOrientationEvent)
   const orientationActive = useDeviceOrientation({ onOrientation: handleOrientation, enabled: true, demoMode: settings.demoMode });
   
   // GPS: Event-driven, typically ~1 Hz (browser/device controlled)
-  useGeolocation({ onPosition: handlePosition, enabled: isRunning, demoMode: settings.demoMode });
+  useGeolocation({
+    onPosition: handlePosition,
+    enabled: isRunning,
+    demoMode: settings.demoMode,
+    demoScenario: settings.demoScenario,
+  });
 
   // Track when device orientation becomes active
   useEffect(() => {
@@ -474,6 +478,11 @@ function App() {
     
     // Reset the analysis pipeline
     pipelineRef.current.reset();
+
+    // A demo recording starts at the beginning of its scenario.
+    if (settings.demoMode) {
+      demoSource.restart();
+    }
     
     // Reset metrics tracking
     strokeRatesRef.current = [];
@@ -492,7 +501,7 @@ function App() {
     }, 1000);
     
     console.log(`[App] Recording started with session ID: ${sessionId}`);
-  }, [checkAndWrite]);
+  }, [checkAndWrite, settings.demoMode]);
 
   // Stop session and save
   const handleStop = useCallback(async () => {
